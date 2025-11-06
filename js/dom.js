@@ -271,6 +271,7 @@ export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = fa
 
   row.appendChild(bodyContainer);
   resultHistory.insertAdjacentElement('afterbegin', row);
+  return row;
 }
   
 export function showResultModal(pokemon, verdict, gameMode, guessesLeft) {
@@ -281,12 +282,20 @@ export function showResultModal(pokemon, verdict, gameMode, guessesLeft) {
   scoreEl.textContent = '';
 
   const crackerImages = resultModal.querySelectorAll('.verdict-cracker-img');
-  if (verdict === '正解') {
+  const isVictory = verdict === '正解' || verdict === '勝利';
+  if (isVictory) {
     crackerImages.forEach(img => img.classList.remove('hidden'));
-    const guessesTaken = 10 - guessesLeft;
-    scoreEl.textContent = `${guessesTaken}回でクリア`;
+    if (gameMode === 'versus') {
+      scoreEl.textContent = verdict === '勝利' ? 'おめでとうございます！' : '';
+    } else {
+      const guessesTaken = 10 - guessesLeft;
+      scoreEl.textContent = `${guessesTaken}回でクリア`;
+    }
   } else {
     crackerImages.forEach(img => img.classList.add('hidden'));
+    if (gameMode === 'versus') {
+      scoreEl.textContent = '相手が正解しました。';
+    }
   }
 
   const setData = (field, value) => {
@@ -343,6 +352,21 @@ export function showResultModal(pokemon, verdict, gameMode, guessesLeft) {
   } else {
     profileStats.classList.remove('hidden');
     profileDetails.style.gridColumn = '';
+  }
+
+  const postGameActions = document.getElementById('post-game-actions');
+  if (postGameActions) postGameActions.classList.add('hidden');
+  const playAgainBtn = document.getElementById('post-game-play-again');
+  const backToMenuBtn = document.getElementById('post-game-back-to-menu');
+  if (playAgainBtn) {
+    if (gameMode === 'versus') {
+      playAgainBtn.classList.add('hidden');
+    } else {
+      playAgainBtn.classList.remove('hidden');
+    }
+  }
+  if (backToMenuBtn) {
+    backToMenuBtn.textContent = gameMode === 'versus' ? 'ホームへ戻る' : 'モード選択へ';
   }
 
   resultModalOverlay.classList.remove('hidden');
