@@ -902,6 +902,35 @@ body {
 .result-row.by-me    .result-header{ background: var(--c-versus-me); color:#fff; }
 .result-row.by-opponent .result-header{ background: var(--c-versus-opponent); color:#fff; }
 
+/* Versus turn notification */
+#versus-turn-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2000;
+}
+
+#versus-turn-modal .versus-turn-modal-content {
+  background: #ffffff;
+  border: 3px solid var(--c-border);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  padding: 1.5rem 2rem;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #222;
+  min-width: 220px;
+}
+
+#versus-turn-modal .versus-turn-modal-content p {
+  margin: 0;
+}
+
+
 /* lobby */
 /* ===== Versus Lobby v2 ===== */
 #versus-lobby-area { margin: 12px 0; } /* header と results の間に置く用 */
