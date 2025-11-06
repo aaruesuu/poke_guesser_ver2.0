@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Poke Guesser</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="icon"
+      href="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png"
+    />
+  </head>
+  <body>
+    <header id="app-header">
+      <h1 class="logo">Poke <span class="logo-accent">Guesser</span></h1>
+      <button id="hamburger-menu" aria-label="メニューを開く">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <nav id="nav-menu">
+        <div class="header-buttons">
+          <button class="header-button" id="home-button">HOMEへ</button>
+          <button class="header-button" id="how-to-play-button">遊び方</button>
+          <button class="header-button" id="about-site-button">このサイトについて</button>
+        </div>
+      </nav>
+    </header>
+
+    <div id="theme-container">
+      <main id="main-content">
+        <div id="mode-selection-screen">
+          <h2 id="selection-title">モードを選んでください</h2>
+          <div class="mode-selection-container">
+            <button class="mode-button classic-button" id="classic-mode-button">
+              <h3>クラシックモード</h3>
+            </button>
+            <button class="mode-button random-button" id="random-start-mode-button">
+              <h3>ランダムモード</h3>
+            </button>
+            <button class="mode-button stats-button" id="base-stats-mode-button">
+              <h3>種族値モード</h3>
+            </button>
+            <button class="mode-button versus-button" id="versus-mode-button">
+              <h3>対戦モード</h3>
+            </button>
+          </div>
+
+          <div class="sub-buttons-container">
+            <button class="sub-button" id="how-to-play-button-home">遊び方</button>
+          </div>
+        </div>
+
+        <div id="game-container" class="hidden">
+          <div id="game-header-area">
+            <div id="game-info-area">
+              <h2 id="game-title"></h2>
+            </div>
+            <div id="game-status"></div>
+
+            <div id="game-controls">
+              <button id="random-start-button" class="action-button hidden">スタート</button>
+
+              <div id="input-area">
+                <input
+                  id="guess-input"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="ポケモンのなまえを入力"
+                />
+                <button id="guess-button" class="guess-button">GUESS</button>
+              </div>
+
+              <div id="suggestions-box" class="hidden"></div>
+            </div>
+          </div>
+
+          <div id="results-area">
+            <div id="result-history"></div>
+          </div>
+
+          <div id="post-game-actions" class="hidden">
+            <button class="action-button" id="post-game-play-again">もう一度遊ぶ</button>
+            <button class="action-button" id="post-game-back-to-menu">モード選択へ</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="modal-overlay" class="hidden">
+      <div id="modal">
+        <button id="modal-close-button">×</button>
+        <div id="modal-content"></div>
+      </div>
+    </div>
+
+    <div id="result-modal-overlay" class="hidden">
+      <div id="result-modal">
+        <button id="result-modal-close-button" class="modal-close-button">×</button>
+
+        <h1 id="result-modal-verdict">
+          <img class="verdict-cracker-img left" src="img/cracker.png" alt="cracker" />
+          <span></span>
+          <img
+            id="verdict-cracker-img-right"
+            class="verdict-cracker-img right"
+            src="img/cracker.png"
+            alt="cracker"
+          />
+        </h1>
+
+        <p id="result-modal-score" class="result-score-text"></p>
+
+        <div id="result-modal-profile">
+          <div class="profile-header">
+            <div class="sprite-container">
+              <img data-field="sprite" src="" alt="pokemon-sprite" />
+            </div>
+            <div class="name-number-wrapper">
+              <div class="national-no-display" data-field="nationalNo"></div>
+              <h2 class="pokemon-name-display">
+                <span data-field="name"></span>
+                <span class="form-name" data-field="form"></span>
+              </h2>
+            </div>
+          </div>
+
+          <div class="profile-content-wrapper">
+            <div class="profile-left"></div>
+            <div class="profile-right"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.FIREBASE_CONFIG = {
+          apiKey: "AIzaSyC3MFZCk5VdYU8FNx9XoqEZFOpDOJ9FWr0",
+          authDomain: "poke-guesser-0805.firebaseapp.com",
+          databaseURL: "https://poke-guesser-0805-default-rtdb.asia-southeast1.firebasedatabase.app",
+          projectId: "poke-guesser-0805",
+          storageBucket: "poke-guesser-0805.firebasestorage.app",
+          messagingSenderId: "1098407280597",
+          appId: "1:1098407280597:web:ede660fe64f1fb5ad2475c"
+        };
+    </script>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
