@@ -2,13 +2,14 @@
 import { allPokemonData } from "./all-pokemon-data.js";
 import { comparePokemon } from "./compare.js";
 import {
-  clearResults,
   renderResult,
   setGameStatus,
   setGameTitle,
   showInputArea,
   hideInputArea,
   hideRandomStartButton,
+  hidePostGameActions,
+  showResultModal,
 } from "./dom.js";
 
 // --- Firebase (modular) ---
@@ -45,6 +46,9 @@ const state = {
   interval: null,                  // ← UI/交代監視のtick
   roomData: null,                  // ← 最新のroomスナップショット
   lastAdvanceAttempt: 0,           // ← 連打防止
+  turnNoticeShownFor: null,
+  turnModalTimeout: null,
+  resultModalShown: false,
 };
 
 // 既存：getPlayerId() はそのまま利用
@@ -177,6 +181,47 @@ function stopInterval() {
   if (state.interval) { clearInterval(state.interval); state.interval = null; }
 }
 
+function ensureTurnModal() {
+  let overlay = document.getElementById("versus-turn-modal");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "versus-turn-modal";
+    overlay.className = "hidden";
+    overlay.innerHTML = `
+      <div class="versus-turn-modal-content" role="alertdialog" aria-live="assertive">
+        <p>あなたの番です。</p>
+      </div>
+    `;
+    overlay.addEventListener("click", hideTurnModal);
+    document.body.appendChild(overlay);
+  }
+  return overlay;
+}
+
+function showTurnModal(turnNumber) {
+  const overlay = ensureTurnModal();
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+  state.turnNoticeShownFor = turnNumber;
+  if (state.turnModalTimeout) {
+    clearTimeout(state.turnModalTimeout);
+  }
+  state.turnModalTimeout = setTimeout(() => {
+    hideTurnModal();
+  }, 1500);
+}
+
+function hideTurnModal() {
+  const overlay = document.getElementById("versus-turn-modal");
+  if (!overlay) return;
+  overlay.classList.add("hidden");
+  overlay.setAttribute("aria-hidden", "true");
+  if (state.turnModalTimeout) {
+    clearTimeout(state.turnModalTimeout);
+    state.turnModalTimeout = null;
+  }
+}
+
 function onTick() {
   const d = state.roomData;
   if (!d) return;
@@ -286,6 +331,10 @@ function listenRoom(onState, onGuess) {
       const baseId = getBaseId();
       let myScoped = getScopedId() || state.me || baseId;
 
+      state.turnNoticeShownFor = null;
+      state.resultModalShown = false;
+      hideTurnModal();
+
       // 自動ジョイン：自分が未登録 & 空きあり → 参加
       const hasExact = players.some(p => p.id === myScoped);
       const hasBase  = baseId && players.some(p => p.id === baseId);
@@ -325,11 +374,20 @@ function listenRoom(onState, onGuess) {
       hideLobby();
       hideRandomStartButton();
       showInputArea();
+      hidePostGameActions();
+      state.resultModalShown = false;
 
       // 残り時間を即表示（連続更新は startInterval に任せる実装でもOK）
       const left = (data.endsAt || 0) - now();
       const mine = data.turnOf === state.me;
       setGameStatus(`${mine ? "あなた" : "相手"}の番です（残り ${fmtClock(left)}）`);
+
+      const currentTurn = data.turnNumber || 1;
+      if (mine && state.turnNoticeShownFor !== currentTurn) {
+        showTurnModal(currentTurn);
+      } else if (!mine) {
+        hideTurnModal();
+      }
 
       try { startInterval && startInterval(); } catch {}
     }
@@ -339,6 +397,14 @@ function listenRoom(onState, onGuess) {
       try { stopInterval && stopInterval(); } catch {}
       const win = data.winner === state.me;
       setGameStatus(`対戦終了：${win ? "Win" : "Lose"}`);
+      hideTurnModal();
+      state.turnNoticeShownFor = null;
+      hideInputArea();
+      if (!state.resultModalShown && state.correct) {
+        const verdict = win ? "勝利" : "敗北";
+        showResultModal(state.correct, verdict, "versus", 0);
+        state.resultModalShown = true;
+      }
     }
 
     onState && onState(data);
@@ -360,14 +426,13 @@ function listenRoom(onState, onGuess) {
       const guessed = Object.values(allPokemonData).find(p => p.id === g.id);
       if (!guessed || !state.correct) return;
       const result = comparePokemon(guessed, state.correct);
-      renderResult(guessed, result, "classic", !!g.isCorrect);
+      const row = renderResult(guessed, result, "classic", !!g.isCorrect);
 
       // あなた=赤／相手=青。アコーディオンのdisabledグレー化を無効化
-      const rows = document.querySelectorAll(".result-row");
-      const last = rows[rows.length - 1];
-      if (last) {
-        last.classList.add(g.by === state.me ? "by-me" : "by-opponent");
-        const trig = last.querySelector(".accordion-trigger");
+      const targetRow = row || document.querySelector(".result-row");
+      if (targetRow) {
+        targetRow.classList.add(g.by === state.me ? "by-me" : "by-opponent");
+        const trig = targetRow.querySelector(".accordion-trigger");
         if (trig && trig.hasAttribute("disabled")) trig.removeAttribute("disabled");
       }
     });
@@ -541,14 +606,13 @@ function handleGuessAdded(g) {
   if (!guessed || !state.correct) return;
   const result = comparePokemon(guessed, state.correct);
 
-  renderResult(guessed, result, "classic", !!g.isCorrect);
+  const row = renderResult(guessed, result, "classic", !!g.isCorrect);
 
   // ③ 行に「あなた/相手」の配色クラスを付与 & 誤ってdisabledなら解除
-  const rows = document.querySelectorAll(".result-row");
-  const last = rows[rows.length - 1];
-  if (last) {
-    last.classList.add(g.by === state.me ? "by-me" : "by-opponent");
-    const trig = last.querySelector(".accordion-trigger");
+  const targetRow = row || document.querySelector(".result-row");
+  if (targetRow) {
+    targetRow.classList.add(g.by === state.me ? "by-me" : "by-opponent");
+    const trig = targetRow.querySelector(".accordion-trigger");
     if (trig && trig.hasAttribute("disabled")) trig.removeAttribute("disabled");
   }
 }
@@ -618,6 +682,14 @@ function teardown() {
     root.parentNode.removeChild(root);
   }
 
+  hideTurnModal();
+  state.turnNoticeShownFor = null;
+  state.resultModalShown = false;
+  if (state.turnModalTimeout) {
+    clearTimeout(state.turnModalTimeout);
+    state.turnModalTimeout = null;
+  }
+  
   // 状態リセット（次回 boot で再初期化される）
   state.roomId = null;
   state.code = null;
