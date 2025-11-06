@@ -362,7 +362,17 @@ function listenRoom(onState, onGuess) {
       }
 
       // 2人揃えば開始判定（creatorId優先は maybeStartMatch 側で処理）
-      try { await maybeStartMatch(roomRef); } catch {}
+      const iAmCreator = data.creatorId && state.me && state.me === data.creatorId;
+      const iAmFallbackStarter = !data.creatorId && state.me && players[0]?.id === state.me;
+      if (players.length === 2 && (iAmCreator || iAmFallbackStarter)) {
+        try {
+          await maybeStartMatch(roomRef);
+        } catch (err) {
+          if (!(err && err.code === "failed-precondition")) {
+            console.warn("[Versus] maybeStartMatch failed", err);
+          }
+        }
+      }
 
       hideInputArea();
       setGameTitle("対戦ロビー");
@@ -514,39 +524,53 @@ function boot() {
   const html = `
     <div class="vlobby">
       <div class="vlobby-card">
-        <h3 class="vlobby-title">対戦ロビー</h3>
+        <div class="vlobby-header">
+          <h3 class="vlobby-title">対戦ロビー</h3>
+          <p class="vlobby-subtitle">フレンドと6桁コードを共有してリアルタイム対戦！</p>
+        </div>
 
-        <!-- ルーム作成 -->
-        <section class="vlobby-create">
-          <div class="vlobby-actions">
-            <button id="vs-create" class="vlobby-btn primary">ルーム作成</button>
-          </div>
-          <div id="create-result" class="vlobby-result" style="display:none;">
-            <div class="vlobby-label">あなたのルームコード</div>
-            <div class="vlobby-code">
-              <span id="vs-my-code">------</span>
+        <div class="vlobby-body">
+          <!-- ルーム作成 -->
+          <section class="vlobby-panel vlobby-create">
+            <h4 class="vlobby-panel-title">ホストとしてルームを開く</h4>
+            <p class="vlobby-panel-description">ワンタップでルームを作成し、表示されたコードを相手に共有しましょう。</p>
+            <div class="vlobby-actions">
+              <button id="vs-create" class="vlobby-btn primary">ルームを作成</button>
             </div>
-            <p class="vlobby-hint">このコードを相手に伝えてください</p>
-          </div>
-        </section>
+            <div id="create-result" class="vlobby-result" style="display:none;">
+              <div class="vlobby-label">あなたのルームコード</div>
+                <div class="vlobby-code">
+                  <span id="vs-my-code">------</span>
+                </div>
+                <p class="vlobby-hint">このコードを相手に伝えて合流してもらいましょう。</p>
+            </div>
+          </section>
 
-        <!-- ルーム参加 -->
-        <section class="vlobby-join">
-          <input
-            id="vs-code"
-            class="vlobby-input"
-            inputmode="numeric"
-            pattern="\\d{6}"
-            maxlength="6"
-            autocomplete="one-time-code"
-            placeholder="123456"
-            aria-label="6桁のルームコード"
-          />
-          <div class="vlobby-actions">
-            <button id="vs-join" class="vlobby-btn ghost small">参加</button>
-          </div>
-          <p id="vlobby-error" class="vlobby-error" aria-live="polite" style="display:none;"></p>
-        </section>
+          <div class="vlobby-divider" role="presentation"><span>or</span></div>
+
+          <!-- ルーム参加 -->
+          <section class="vlobby-panel vlobby-join">
+            <h4 class="vlobby-panel-title">コードで参加する</h4>
+            <p class="vlobby-panel-description">相手から教えてもらった6桁のコードを入力して参加します。</p>
+            <div class="vlobby-join-input">
+              <label class="vlobby-input-label" for="vs-code">ルームコード</label>
+              <input
+                id="vs-code"
+                class="vlobby-input"
+                inputmode="numeric"
+                pattern="\\d{6}"
+                maxlength="6"
+                autocomplete="one-time-code"
+                placeholder="123456"
+                aria-label="6桁のルームコード"
+              />
+            </div>
+            <div class="vlobby-actions">
+              <button id="vs-join" class="vlobby-btn ghost small">参加する</button>
+            </div>
+            <p id="vlobby-error" class="vlobby-error" aria-live="polite" style="display:none;"></p>
+          </section>
+        </div>
       </div>
     </div>
 
@@ -561,7 +585,9 @@ function boot() {
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     root.querySelectorAll('#vs-create, #vs-join, #vs-code')
       .forEach(el => { if (el) el.disabled = offline; });
-    setGameStatus(offline ? 'オフラインです。接続を確認してください。' : 'ルームを作成/参加してください');
+    setGameStatus(offline
+      ? 'オフラインです。接続を確認してください。'
+      : 'ロビーからルームを作成するか、6桁のコードで参加してください');
   };
   window.addEventListener('online',  syncNetUI);
   window.addEventListener('offline', syncNetUI);
@@ -689,7 +715,7 @@ function teardown() {
     clearTimeout(state.turnModalTimeout);
     state.turnModalTimeout = null;
   }
-  
+
   // 状態リセット（次回 boot で再初期化される）
   state.roomId = null;
   state.code = null;
