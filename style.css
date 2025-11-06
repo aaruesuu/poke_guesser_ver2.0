@@ -930,136 +930,313 @@ body {
   margin: 0;
 }
 
-
 /* lobby */
 /* ===== Versus Lobby v2 ===== */
 #versus-lobby-area { margin: 12px 0; } /* header と results の間に置く用 */
 
 .vlobby {
-  display: grid;
-  place-items: center;
-  padding: 0 0 1rem 0;
-  margin: 0;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: clamp(16px, 5vw, 42px);
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255, 243, 210, 0.9), rgba(214, 231, 255, 0.95));
+  overflow: hidden;
+}
+
+.vlobby::before,
+.vlobby::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.38;
+  z-index: 0;
+}
+
+.vlobby::before {
+  width: 220px;
+  height: 220px;
+  background: radial-gradient(circle at center, rgba(255, 208, 82, 0.55), rgba(255, 208, 82, 0));
+  top: -70px;
+  right: -40px;
+}
+
+.vlobby::after {
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(circle at center, rgba(112, 197, 255, 0.4), rgba(112, 197, 255, 0));
+  bottom: -120px;
+  left: -70px;
 }
 
 .vlobby-card {
-  width: 100%;
-  max-width: 720px;          /* 120% → 収まりの良い幅に */
-  background: var(--c-white, #fff);
-  border-radius: 16px;
-  box-shadow: 0 12px 30px rgba(0,0,0,.12);
-  border: 4px solid var(--c-border);
-  padding: 20px;
+  width: min(100%, 760px);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  padding: clamp(24px, 6vw, 40px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 30px 55px rgba(43, 70, 90, 0.18);
+  backdrop-filter: blur(6px);
+  position: relative;
+  z-index: 1;
+}
+
+.vlobby-header {
+  text-align: center;
+  margin-bottom: clamp(20px, 4vw, 28px);
 }
 
 .vlobby-title {
   font-family: 'M PLUS 1p', 'Zen Maru Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans JP', sans-serif;
-  text-align: center;
-  margin: 0 0 1.1rem;
-  padding-bottom: 10px;
-  border-bottom: 2.5px solid var(--c-border);
-  font-size: clamp(18px, 2.2vw, 22px);
+  margin: 0;
+  font-size: clamp(20px, 3vw, 26px);
   font-weight: 800;
-  letter-spacing: .02em;
   color: var(--c-text, #222);
+  letter-spacing: 0.05em;
+}
+
+.vlobby-subtitle {
+  margin: 8px 0 0;
+  color: rgba(34, 34, 34, 0.72);
+  font-size: clamp(13px, 2.4vw, 16px);
+  font-weight: 600;
+}
+
+.vlobby-body {
+  display: grid;
+  gap: clamp(18px, 4vw, 28px);
+}
+
+.vlobby-panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.82));
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 18px 38px rgba(30, 50, 70, 0.12);
+  padding: clamp(18px, 4vw, 26px);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.vlobby-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(140deg, rgba(255, 213, 96, 0.08), rgba(98, 173, 255, 0.08));
+  mix-blend-mode: screen;
+}
+
+.vlobby-panel-title {
+  font-family: 'M PLUS 1p', 'Zen Maru Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans JP', sans-serif;
+  margin: 0;
+  font-size: clamp(16px, 2.8vw, 18px);
+  font-weight: 800;
+  color: rgba(34, 34, 34, 0.92);
+}
+
+.vlobby-panel-description {
+  margin: 10px auto 18px;
+  font-size: clamp(13px, 2.5vw, 15px);
+  color: rgba(34, 34, 34, 0.7);
+  line-height: 1.6;
 }
 
 .vlobby-actions {
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin: 10px 0;
+  margin: 12px 0 0;
+  position: relative;
+  z-index: 1;
 }
 
 .vlobby-btn {
   appearance: none;
-  border: 3px solid var(--c-border);
-  border-radius: 10px;
-  padding: 10px 18px;
+  border-radius: 999px;
+  border: 0;
+  padding: 12px 28px;
   font-weight: 800;
   cursor: pointer;
-  transition: transform .05s ease, box-shadow .15s ease, opacity .2s ease, filter .2s ease;
-  background: var(--c-main-bg, #d1e9dd);
+  transition: transform 0.08s ease, box-shadow 0.18s ease, filter 0.2s ease;
+  background: linear-gradient(135deg, #d7efe1, #b9e1f9);
+  color: #1d2b36;
+  box-shadow: 0 8px 22px rgba(34, 74, 95, 0.18);
 }
-.vlobby-btn.primary  { background: var(--c-accent, #f7d864); }
-.vlobby-btn.ghost    { background: #7ec8e6; }
-.vlobby-btn:hover    { box-shadow: 0 6px 18px rgba(0,0,0,.08); }
-.vlobby-btn:active   { transform: translateY(1px); }
-.vlobby-btn:disabled { opacity: .55; cursor: not-allowed; filter: grayscale(.2); }
 
-.vlobby-create,
-.vlobby-join {
-  margin-top: 14px;
-  padding-top: 18px;
-  border-top: 2px dashed var(--c-black-op20, rgba(0,0,0,.2));
-  text-align: center;
+.vlobby-btn.small {
+  padding: 11px 24px;
+  font-size: 0.95rem;
+}
+
+.vlobby-btn.primary {
+  background: linear-gradient(135deg, #ffe082, #ffca28);
+  color: #4b3900;
+}
+
+.vlobby-btn.ghost {
+  background: linear-gradient(135deg, #8fd0ff, #6bb7ff);
+  color: #0b2a4a;
+}
+
+.vlobby-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(34, 74, 95, 0.22);
+}
+
+.vlobby-btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 6px 14px rgba(34, 74, 95, 0.18);
+}
+
+.vlobby-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+  box-shadow: none;
+}
+
+.vlobby-result {
+  margin-top: 16px;
+  padding: 16px 14px 20px;
+  border-radius: 16px;
+  background: rgba(255, 250, 240, 0.92);
+  border: 1px solid rgba(255, 213, 96, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(255, 213, 96, 0.22);
+  position: relative;
+  z-index: 1;
 }
 
 .vlobby-label {
   font-family: 'M PLUS 1p', 'Zen Maru Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans JP', sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
-  margin: 6px 0;
+  margin: 0 0 6px;
+  color: rgba(34, 34, 34, 0.78);
 }
 
 .vlobby-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: clamp(26px, 5.8vw, 40px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: clamp(26px, 5.2vw, 42px);
   font-weight: 900;
-  letter-spacing: .18em;
-  padding: 0.9rem 1.2rem;
-  background: var(--c-main-bg, #d1e9dd);
-  border-radius: 12px;
-  border: 3px solid var(--c-border);
+  letter-spacing: 0.22em;
+  padding: 0.9rem 1.4rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 244, 199, 0.95));
+  border-radius: 14px;
+  border: 1px solid rgba(255, 213, 96, 0.45);
   display: inline-block;
   user-select: text;
-  margin: 0.25rem auto 0;
+  margin: 0.35rem auto 0;
+  color: #3b2c00;
 }
 
 .vlobby-hint {
   font-family: 'M PLUS 1p', 'Zen Maru Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans JP', sans-serif;
   font-size: 12px;
-  opacity: .75;
+  opacity: 0.7;
   margin-top: 0.8rem;
 }
 
-.vlobby-join {
+.vlobby-divider {
+  position: relative;
   display: flex;
-  flex-direction: row;
-  justify-content: center;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  color: rgba(34, 34, 34, 0.4);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+.vlobby-divider::before,
+.vlobby-divider::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(34, 34, 34, 0.1);
+  margin: 0 12px;
+}
+
+.vlobby-divider span {
+  font-size: 0.75rem;
+  color: rgba(34, 34, 34, 0.45);
+}
+
+.vlobby-join-input {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  margin-top: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.vlobby-input-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(34, 34, 34, 0.68);
 }
 
 .vlobby-input {
-  font-size: 16px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 2px solid var(--c-border);
+  font-size: 18px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 2px solid rgba(119, 158, 255, 0.55);
   width: min(260px, 80%);
   text-align: center;
-  letter-spacing: .12em;
+  letter-spacing: 0.18em;
   font-weight: 800;
   outline: none;
-  transition: box-shadow .2s ease, border-color .2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  background: rgba(255, 255, 255, 0.95);
+  color: #0c1f3a;
 }
+
 .vlobby-input:focus {
-  border-color: var(--c-accent, #f7d864);
-  box-shadow: 0 0 0 4px rgba(0,0,0,.04);
+  border-color: rgba(98, 173, 255, 0.9);
+  box-shadow: 0 0 0 4px rgba(98, 173, 255, 0.25);
 }
-.vlobby-input::placeholder { color: rgba(0,0,0,.35); }
+
+.vlobby-input::placeholder {
+  color: rgba(12, 31, 58, 0.3);
+}
 
 .vlobby-error {
-  color: #e53935;
-  margin-top: 6px;
+  color: #d93025;
+  margin-top: 10px;
   font-size: 13px;
+  font-weight: 600;
 }
 
-/* レスポンシブ微調整 */
+@media (min-width: 680px) {
+  .vlobby-body {
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+  }
+
+  .vlobby-panel {
+    text-align: left;
+  }
+
+  .vlobby-join-input {
+    justify-items: start;
+  }
+
+  .vlobby-actions {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 480px) {
-  .vlobby-card { border-width: 3px; padding: 16px; }
-  .vlobby-btn  { padding: 9px 14px; }
+  .vlobby {
+    border-radius: 18px;
+  }
+
+  .vlobby-btn {
+    padding: 11px 22px;
+  }
 }
 /* ===== Versus: 履歴の配色（あなた=赤／相手=青） ===== */
 .result-row.by-me .accordion-trigger,
