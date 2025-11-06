@@ -102,6 +102,10 @@ function resetGame() {
   clearResults();
   showInputArea();
   hidePostGameActions();
+  const playAgainBtn = document.getElementById('post-game-play-again');
+  if (playAgainBtn) playAgainBtn.classList.remove('hidden');
+  const backToMenuBtn = document.getElementById('post-game-back-to-menu');
+  if (backToMenuBtn) backToMenuBtn.textContent = 'モード選択へ';
   setGameStatus('');
 }
 
