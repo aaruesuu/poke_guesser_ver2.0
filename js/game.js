@@ -208,8 +208,8 @@ function startVersus() {
   gameMode = 'versus';
   resetGame();
   switchScreen('game-container');
-  setGameTitle('対戦モード');
-  setGameStatus('ルームを作成/参加してください');
+  setGameTitle('対戦ロビー');
+  setGameStatus('ルームを作成するか、コードを入力して参加してください');
   hideRandomStartButton();
   hideInputArea(); // ロビー中は入力不可
   const tryBoot = () => {
