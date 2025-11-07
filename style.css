@@ -904,6 +904,7 @@ body {
 
 /* Versus turn notification */
 #versus-turn-modal {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
   position: fixed;
   inset: 0;
   display: flex;
@@ -932,15 +933,14 @@ body {
 
 /* lobby */
 /* ===== Versus Lobby v2 ===== */
-#versus-lobby-area { margin: 12px 0; } /* header と results の間に置く用 */
 
 .vlobby {
   position: relative;
   display: flex;
   justify-content: center;
-  padding: clamp(16px, 5vw, 42px);
+  padding: clamp(10px, 1vw, 40px);
   border-radius: 24px;
-  background: linear-gradient(135deg, rgba(255, 243, 210, 0.9), rgba(214, 231, 255, 0.95));
+  background: linear-gradient(165deg, rgba(214, 231, 255, 0.95), rgba(255, 243, 210, 0.9));
   overflow: hidden;
 }
 
@@ -971,9 +971,9 @@ body {
 
 .vlobby-card {
   width: min(100%, 760px);
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 24px;
-  padding: clamp(24px, 6vw, 40px);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow: 0 30px 55px rgba(43, 70, 90, 0.18);
   backdrop-filter: blur(6px);
@@ -1004,18 +1004,13 @@ body {
 
 .vlobby-body {
   display: grid;
-  gap: clamp(18px, 4vw, 28px);
+  gap: 6px 0;
 }
 
 .vlobby-panel {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.82));
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 18px 38px rgba(30, 50, 70, 0.12);
-  padding: clamp(18px, 4vw, 26px);
+  padding: clamp(18px, 3vw, 26px);
   text-align: center;
   position: relative;
-  overflow: hidden;
 }
 
 .vlobby-panel::after {
@@ -1037,6 +1032,7 @@ body {
 }
 
 .vlobby-panel-description {
+  font-family: 'M PLUS 1p', 'Zen Maru Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans JP', sans-serif;
   margin: 10px auto 18px;
   font-size: clamp(13px, 2.5vw, 15px);
   color: rgba(34, 34, 34, 0.7);
@@ -1056,19 +1052,13 @@ body {
 .vlobby-btn {
   appearance: none;
   border-radius: 999px;
-  border: 0;
+  border: 3px solid var(--c-border);
   padding: 12px 28px;
   font-weight: 800;
   cursor: pointer;
   transition: transform 0.08s ease, box-shadow 0.18s ease, filter 0.2s ease;
   background: linear-gradient(135deg, #d7efe1, #b9e1f9);
   color: #1d2b36;
-  box-shadow: 0 8px 22px rgba(34, 74, 95, 0.18);
-}
-
-.vlobby-btn.small {
-  padding: 11px 24px;
-  font-size: 0.95rem;
 }
 
 .vlobby-btn.primary {
@@ -1117,21 +1107,6 @@ body {
   color: rgba(34, 34, 34, 0.78);
 }
 
-.vlobby-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
-  font-size: clamp(26px, 5.2vw, 42px);
-  font-weight: 900;
-  letter-spacing: 0.22em;
-  padding: 0.9rem 1.4rem;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 244, 199, 0.95));
-  border-radius: 14px;
-  border: 1px solid rgba(255, 213, 96, 0.45);
-  display: inline-block;
-  user-select: text;
-  margin: 0.35rem auto 0;
-  color: #3b2c00;
-}
-
 .vlobby-hint {
   font-family: 'M PLUS 1p', 'Zen Maru Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans JP', sans-serif;
   font-size: 12px;
@@ -1173,6 +1148,7 @@ body {
   z-index: 1;
 }
 
+
 .vlobby-input-label {
   font-size: 0.85rem;
   font-weight: 700;
@@ -1180,18 +1156,34 @@ body {
 }
 
 .vlobby-input {
-  font-size: 18px;
-  padding: 14px 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: clamp(26px, 5.2vw, 42px);
+  font-weight: 900;
+  letter-spacing: 0.22em;
+  padding: 1rem 2.8rem;
   border-radius: 14px;
   border: 2px solid rgba(119, 158, 255, 0.55);
   width: min(260px, 80%);
   text-align: center;
-  letter-spacing: 0.18em;
-  font-weight: 800;
   outline: none;
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
-  background: rgba(255, 255, 255, 0.95);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(199, 219, 255, 0.3));
   color: #0c1f3a;
+}
+
+.vlobby-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: clamp(26px, 5.2vw, 42px);
+  font-weight: 900;
+  letter-spacing: 0.22em;
+  padding: 1rem 2.8rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(255, 244, 199, 0.3));
+  border-radius: 14px;
+  border: 1px solid rgba(255, 213, 96, 0.45);
+  display: inline-block;
+  user-select: text;
+  margin: 0.35rem auto 0;
+  color: #3b2c00;
 }
 
 .vlobby-input:focus {
@@ -1264,3 +1256,6 @@ body {
 .result-row.by-opponent .result-header-title {
   font-weight: 800;
 }
+
+.result-row.by-me    .result-header{ background: var(--c-versus-me); color:#fff; }
+.result-row.by-opponent .result-header{ background: var(--c-versus-opponent); color:#fff; }
