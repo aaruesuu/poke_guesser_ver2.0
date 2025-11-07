@@ -10,6 +10,8 @@ import {
   renderResult,
   setGameStatus,
   setGameTitle,
+  hideResultsArea,
+  showResultsArea,
   showInputArea,
   showRandomStartButton,
   showResultModal,
@@ -65,7 +67,7 @@ function startGame(mode) {
 
   // 通常モードの表示ルールを強制（あなたの既存処理に合わせてそのままでOK）
   document.getElementById('game-header-area')?.style && (document.getElementById('game-header-area').style.display = '');
-  document.getElementById('results-area')?.style && (document.getElementById('results-area').style.display = '');
+  showResultsArea();
 
   resetGame();
   switchScreen('game-container');
@@ -212,6 +214,7 @@ function startVersus() {
   setGameStatus('ルームを作成するか、コードを入力して参加してください');
   hideRandomStartButton();
   hideInputArea(); // ロビー中は入力不可
+  hideResultsArea();
   const tryBoot = () => {
     if (globalThis._pgVersus && typeof globalThis._pgVersus.boot === 'function') {
       globalThis._pgVersus.boot();
