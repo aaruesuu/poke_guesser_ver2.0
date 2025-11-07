@@ -40,6 +40,7 @@ const gameControls = document.getElementById('game-controls');
 const inputArea = document.getElementById('input-area');
 const suggestionsBox = document.getElementById('suggestions-box');
 const randomStartButton = document.getElementById('random-start-button');
+const resultsArea = document.getElementById('results-area');
 
 const postGamePlayAgainButton = document.getElementById('post-game-play-again');
 const postGameBackToMenuButton = document.getElementById('post-game-back-to-menu');
@@ -138,6 +139,20 @@ export function switchScreen(targetScreen) {
 export function setGameStatus(text) { gameStatus.textContent = text || ""; }
 export function setGameTitle(text) { gameTitle.textContent = text || ""; }
 export function updateStatusUI(text) { gameStatus.textContent = text || ""; }
+
+export function hideResultsArea() {
+  if (resultsArea?.style) {
+    resultsArea.style.display = 'none';
+  }
+  resultsArea?.classList?.add('hidden');
+}
+
+export function showResultsArea() {
+  if (resultsArea?.style) {
+    resultsArea.style.display = '';
+  }
+  resultsArea?.classList?.remove('hidden');
+}
 
 export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = false) {
   const row = document.createElement('div');
