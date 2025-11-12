@@ -1,4 +1,3 @@
-// vs: Firestore-backed Versus mode (MVP, hardened)
 import { allPokemonData } from "./all-pokemon-data.js";
 import { comparePokemon } from "./compare.js";
 import {
@@ -12,9 +11,10 @@ import {
   hideRandomStartButton,
   hidePostGameActions,
   showResultModal,
+  renderMaskedVersusGuess,
 } from "./dom.js";
+import { requestHint } from "./hints.js";
 
-// --- Firebase (modular) ---
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 
 import {
@@ -22,12 +22,25 @@ import {
   onSnapshot, serverTimestamp, collection, addDoc, query, orderBy
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-const V90 = 90 * 1000; // 90s per turn
+const V90 = 90 * 1000;
+const HIDE_HISTORY_DURATION_MS = 20 * 1000;
 
-// ▼ 開発時固定（本番は false 推奨）
-const DEBUG_FIXED_ANSWER = true;
+const SKILL_TYPES = {
+  MASK: "mask",
+  EXTRA: "extra",
+  HINT: "hint",
+  HIDE: "hide",
+};
 
-// ---------- helpers ----------
+const SKILL_LABELS = {
+  [SKILL_TYPES.MASK]: "秘匿回答",
+  [SKILL_TYPES.EXTRA]: "連続ターン",
+  [SKILL_TYPES.HINT]: "ヒント確認",
+  [SKILL_TYPES.HIDE]: "履歴隠し",
+};
+
+const DEBUG_FIXED_ANSWER = false;
+
 function ensureFirebase() {
   if (getApps().length) return getApps()[0];
   if (globalThis.firebaseApp) return globalThis.firebaseApp;
@@ -37,7 +50,6 @@ function ensureFirebase() {
 
 function now() { return Date.now(); }
 
-// 追加：状態（UI更新用）
 const state = {
   roomId: null,
   code: null,
@@ -45,32 +57,42 @@ const state = {
   correct: null,
   unsubRoom: null,
   unsubGuesses: null,
-  interval: null,                  // ← UI/交代監視のtick
-  roomData: null,                  // ← 最新のroomスナップショット
-  lastAdvanceAttempt: 0,           // ← 連打防止
+  unsubSkills: null,
+  interval: null,
+  roomData: null,
+  lastAdvanceAttempt: 0,
   turnNoticeShownFor: null,
   turnModalTimeout: null,
   resultModalShown: false,
+  skillUsed: false,
+  usedSkillType: null,
+  skillPending: false,
+  skillEffects: {
+    maskNextGuessTurn: null,
+    extraTurnForTurn: null,
+  },
+  historyHideTimer: null,
+  historyHiddenUntil: 0,
+  historyMaskActive: false,
+  holdHideBanner: false,
+  showingOpponentModal: false,
 };
 
-// 既存：getPlayerId() はそのまま利用
-const BASE_PLAYER_ID = getPlayerId(); // localStorage の共通ID（タブ間共通）
+const BASE_PLAYER_ID = getPlayerId();
 
 function roomScopedIdKey(roomId) { return `pg-room-${roomId}-pid`; }
 function getRoomScopedId(roomId) {
   const k = roomScopedIdKey(roomId);
-  return sessionStorage.getItem(k) || BASE_PLAYER_ID; // 既に割当があればそれを使う
+  return sessionStorage.getItem(k) || BASE_PLAYER_ID;
 }
 function setRoomScopedId(roomId, id) {
   sessionStorage.setItem(roomScopedIdKey(roomId), id);
 }
 function genAltId(base) {
-  const suffix = Math.random().toString(16).slice(2, 6); // 4桁
+  const suffix = Math.random().toString(16).slice(2, 6);
   return `${base}:${suffix}`;
 }
 
-
-// 追加：mm:ss 整形
 function fmtClock(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   const mm = String(Math.floor(s / 60)).padStart(1, "0");
@@ -86,7 +108,6 @@ function safeUUID(){
       if (crypto.getRandomValues) {
         const buf = new Uint8Array(16);
         crypto.getRandomValues(buf);
-        // RFC4122 v4
         buf[6] = (buf[6] & 0x0f) | 0x40;
         buf[8] = (buf[8] & 0x3f) | 0x80;
         const hex = [...buf].map(b => b.toString(16).padStart(2,"0")).join("");
@@ -124,7 +145,6 @@ function chooseAnswerBySeed(seed) {
   return allPokemonData[names[idx]];
 }
 
-// --------- minimal UI helpers (lobby, toast) ----------
 function ensureLobbyRoot() {
   let root = document.getElementById("versus-lobby-area");
   if (!root) {
@@ -135,13 +155,10 @@ function ensureLobbyRoot() {
     const results = document.getElementById("results-area");
 
     if (results && results.parentNode) {
-      // results の直前に差し込む → header と results の“間”になる
       results.parentNode.insertBefore(root, results);
     } else if (header && header.parentNode) {
-      // 安全策：header の直後に入れる
       header.parentNode.insertBefore(root, header.nextSibling);
     } else {
-      // 最後の保険：game-container 先頭 or body 末尾
       (document.getElementById("game-container") || document.body).appendChild(root);
     }
   }
@@ -159,7 +176,220 @@ function showToast(msg) {
   setTimeout(() => { t.style.display = "none"; }, 900);
 }
 
-// ------------- Firestore Core ---------------
+function ensureSkillBar() {
+  const bar = document.getElementById("versus-skill-bar");
+  if (!bar) return null;
+  if (!bar.dataset.bound) {
+    bar.addEventListener("click", handleSkillBarClick);
+    bar.dataset.bound = "1";
+  }
+  return bar;
+}
+
+function handleSkillBarClick(event) {
+  const btn = event.target.closest(".versus-skill-button");
+  if (!btn) return;
+  if (btn.disabled) return;
+  if (!state.roomData || state.roomData.status !== "playing") return;
+  if (state.roomData.turnOf !== state.me) return;
+  if (state.skillUsed || state.skillPending) return;
+  const skill = btn.dataset.skill;
+  triggerSkill(skill).catch((err) => console.warn("[Versus] triggerSkill failed", err));
+}
+
+function updateSkillUI(roomData) {
+  const bar = ensureSkillBar();
+  if (!bar) return;
+
+  if (!roomData || roomData.status !== "playing") {
+    bar.classList.add("hidden");
+    return;
+  }
+
+  bar.classList.remove("hidden");
+  const myTurn = roomData.turnOf === state.me;
+  bar.dataset.myTurn = myTurn ? "1" : "0";
+
+  const buttons = bar.querySelectorAll(".versus-skill-button");
+  buttons.forEach((btn) => {
+    const skill = btn.dataset.skill;
+    const used = state.usedSkillType === skill;
+    let disabled = !myTurn || state.skillPending || state.skillUsed;
+    if (skill === SKILL_TYPES.HINT && !state.correct) {
+      disabled = true;
+    }
+    btn.disabled = disabled;
+    btn.classList.toggle("skill-used", used);
+    btn.classList.toggle("skill-disabled", btn.disabled && !used);
+  });
+}
+
+function ensureHistoryMask() {
+  const area = document.getElementById("results-area");
+  if (!area) return null;
+  let mask = document.getElementById("versus-history-mask");
+  if (!mask) {
+    mask = document.createElement("div");
+    mask.id = "versus-history-mask";
+    mask.innerHTML = `<div class="versus-history-mask-content"><p></p></div>`;
+    area.appendChild(mask);
+  }
+  return mask;
+}
+
+function applyHistoryMask(durationMs = HIDE_HISTORY_DURATION_MS) {
+  const mask = ensureHistoryMask();
+  if (!mask) return;
+  const message = mask.querySelector("p");
+  if (message) {
+    const seconds = Math.round(durationMs / 1000);
+    message.textContent = `相手のスキルで履歴が${seconds}秒間非表示になっています`;
+  }
+  mask.classList.add("active");
+  state.historyMaskActive = true;
+  state.historyHiddenUntil = now() + durationMs;
+  if (state.historyHideTimer) clearTimeout(state.historyHideTimer);
+  state.historyHideTimer = setTimeout(() => {
+    clearHistoryMask();
+  }, durationMs);
+}
+
+function clearHistoryMask() {
+  const mask = document.getElementById("versus-history-mask");
+  if (mask) mask.classList.remove("active");
+  if (state.historyHideTimer) {
+    clearTimeout(state.historyHideTimer);
+    state.historyHideTimer = null;
+  }
+  state.historyMaskActive = false;
+  state.historyHiddenUntil = 0;
+}
+
+function resetSkillState() {
+  state.skillUsed = false;
+  state.usedSkillType = null;
+  state.skillPending = false;
+  state.skillEffects.maskNextGuessTurn = null;
+  state.skillEffects.extraTurnForTurn = null;
+}
+
+function announceSkillUse(skillId, isMine, payload = {}) {
+  const label = SKILL_LABELS[skillId] || "スキル";
+  let message;
+  if (skillId === SKILL_TYPES.HINT && payload.label) {
+    message = isMine
+      ? `ヒント「${payload.label}」を確認しました`
+      : `相手がヒント「${payload.label}」を確認しました`;
+  } else {
+    message = isMine
+      ? `スキル「${label}」を使用しました`
+      : `相手が「${label}」を使用！`;
+  }
+  showToast(message);
+}
+
+async function triggerSkill(skillId) {
+  if (!state.roomData || state.roomData.status !== "playing") return;
+  state.skillPending = true;
+  updateSkillUI(state.roomData);
+
+  const turnNumber = state.roomData.turnNumber || 1;
+  let consumed = false;
+  let toastPayload = {};
+
+  try {
+    switch (skillId) {
+      case SKILL_TYPES.MASK:
+        state.skillEffects.maskNextGuessTurn = turnNumber;
+        consumed = true;
+        await postSkillEvent(skillId, { turnNumber });
+        break;
+      case SKILL_TYPES.EXTRA:
+        state.skillEffects.extraTurnForTurn = turnNumber;
+        consumed = true;
+        await postSkillEvent(skillId, { turnNumber });
+        break;
+      case SKILL_TYPES.HINT: {
+        if (!state.correct) break;
+        const result = await requestHint({ pokemon: state.correct, mode: "versus" });
+        if (!result) {
+          return;
+        }
+        consumed = true;
+        toastPayload = { label: result.label };
+        await postSkillEvent(skillId, { field: result.key, label: result.label });
+        break;
+      }
+      case SKILL_TYPES.HIDE:
+        consumed = true;
+        await postSkillEvent(skillId, { durationMs: HIDE_HISTORY_DURATION_MS });
+        break;
+      default:
+        break;
+    }
+
+    if (consumed) {
+      state.skillUsed = true;
+      state.usedSkillType = skillId;
+      announceSkillUse(skillId, true, toastPayload);
+    }
+  } catch (err) {
+    console.warn("[Versus] triggerSkill error", err);
+    if (err && err.code === "permission-denied") {
+      showToast("権限がありません（Firestore ルールを確認してください）");
+      state.skillUsed = false;
+      state.usedSkillType = null;
+    }
+    if (skillId === SKILL_TYPES.MASK && state.skillEffects.maskNextGuessTurn === turnNumber) {
+      state.skillEffects.maskNextGuessTurn = null;
+    }
+    if (skillId === SKILL_TYPES.EXTRA && state.skillEffects.extraTurnForTurn === turnNumber) {
+      state.skillEffects.extraTurnForTurn = null;
+    }
+  } finally {
+    state.skillPending = false;
+    updateSkillUI(state.roomData);
+  }
+}
+
+async function postSkillEvent(skillId, payload = {}) {
+  const roomRef = doc(ensureDB(), "rooms", state.roomId);
+  await addDoc(collection(roomRef, "skills"), {
+    by: state.me,
+    type: skillId,
+    turnNumber: state.roomData?.turnNumber || 0,
+    payload,
+    ts: serverTimestamp(),
+  });
+}
+
+function handleSkillEvent(evt) {
+  if (!evt) return;
+  const { type, by, payload = {}, turnNumber } = evt;
+  const isMine = by === state.me;
+
+  if (isMine) {
+    state.skillUsed = true;
+    state.usedSkillType = type;
+    state.skillPending = false;
+    if (type === SKILL_TYPES.MASK) {
+      state.skillEffects.maskNextGuessTurn = turnNumber;
+    }
+    if (type === SKILL_TYPES.EXTRA) {
+      state.skillEffects.extraTurnForTurn = turnNumber;
+    }
+  } else {
+    announceSkillUse(type, false, payload);
+  }
+
+  if (type === SKILL_TYPES.HIDE && !isMine) {
+    const duration = typeof payload.durationMs === "number" ? payload.durationMs : HIDE_HISTORY_DURATION_MS;
+    applyHistoryMask(duration);
+  }
+
+  updateSkillUI(state.roomData);
+}
+
 let app = null;
 let db  = null;
 
@@ -167,7 +397,6 @@ function ensureDB(){
   if (db) return db;
   app = ensureFirebase();
   if (!app) throw new Error("Firebase 未初期化です。window.FIREBASE_CONFIG を設定してください。");
-  // 不安定回線/プロキシ対策（長ポーリングへ自動フォールバック）
   db = initializeFirestore(app, {
     experimentalAutoDetectLongPolling: true,
     useFetchStreams: false
@@ -191,7 +420,9 @@ function ensureTurnModal() {
     overlay.className = "hidden";
     overlay.innerHTML = `
       <div class="versus-turn-modal-content" role="alertdialog" aria-live="assertive">
-        <p>あなたの番です</p>
+        <div class="versus-turn-banner">
+          <span class="versus-turn-text">あなたの番</span>
+        </div>
       </div>
     `;
     overlay.addEventListener("click", hideTurnModal);
@@ -199,18 +430,48 @@ function ensureTurnModal() {
   }
   return overlay;
 }
+function showBanner(text) {
+  const overlay = ensureTurnModal();
+  const textEl = overlay.querySelector('.versus-turn-text');
+  if (textEl) textEl.textContent = text;
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+  const banner = overlay.querySelector('.versus-turn-banner');
+  if (banner) {
+    banner.classList.remove('animate');
+    void banner.offsetWidth;
+    banner.classList.add('animate');
+  }
+  return overlay;
+}
 
 function showTurnModal(turnNumber) {
-  const overlay = ensureTurnModal();
-  overlay.classList.remove("hidden");
-  overlay.setAttribute("aria-hidden", "false");
+  showBanner('あなたの番');
   state.turnNoticeShownFor = turnNumber;
-  if (state.turnModalTimeout) {
-    clearTimeout(state.turnModalTimeout);
-  }
+  if (state.turnModalTimeout) clearTimeout(state.turnModalTimeout);
+  state.turnModalTimeout = setTimeout(() => { hideTurnModal(); }, 1600);
+}
+
+function showOpponentModal() {
+  state.showingOpponentModal = true;
+  state.holdHideBanner = true;
+  showBanner('相手の番');
+  if (state.turnModalTimeout) clearTimeout(state.turnModalTimeout);
   state.turnModalTimeout = setTimeout(() => {
     hideTurnModal();
-  }, 1500);
+    state.showingOpponentModal = false;
+    state.holdHideBanner = false;
+  }, 1600);
+}
+
+function showBattleStartModal() {
+ state.holdHideBanner = true;
+ showBanner('バトルスタート！');
+ if (state.turnModalTimeout) clearTimeout(state.turnModalTimeout);
+ state.turnModalTimeout = setTimeout(() => {
+ hideTurnModal();
+ state.holdHideBanner = false;
+ }, 1600);
 }
 
 function hideTurnModal() {
@@ -228,12 +489,10 @@ function onTick() {
   const d = state.roomData;
   if (!d) return;
 
-  // ① 残り時間の表示
   if (d.status === "playing") {
     const left = (d.endsAt || 0) - now();
     const mine = d.turnOf === state.me;
     setGameStatus(`${mine ? "あなた" : "相手"}の番です（残り ${fmtClock(left)}）`);
-    // 期限超過 → 交代を一度だけ試みる（スパム防止）
     if (left <= 0 && (now() - (state.lastAdvanceAttempt || 0) > 1500)) {
       state.lastAdvanceAttempt = now();
       forceAdvanceTurnIfExpired().catch(()=>{});
@@ -241,12 +500,11 @@ function onTick() {
   }
 }
 
-// 置換：即時に roomId をセットして返す。実参加は listenRoom 側で自動実行。
 async function joinRoomByCode(code) {
   state.me   = getRoomScopedId(code);
   state.roomId = code;
   state.code   = code;
-  return { roomId: code }; // 即返却
+  return { roomId: code };
 }
 
 function opponentId(players, me) {
@@ -254,7 +512,6 @@ function opponentId(players, me) {
   return a.find(id => id !== me) || null;
 }
 
-// 置換：creatorId が参加者に含まれていれば先手、それ以外は配列先頭。
 async function maybeStartMatch(roomRef) {
   await runTransaction(ensureDB(), async (tx) => {
     const rs = await tx.get(roomRef);
@@ -274,15 +531,10 @@ async function maybeStartMatch(roomRef) {
   });
 }
 
-
-// 置換：rooms/{code} を監視し、lobbyで自分が未登録ならTxで即参加。
-// 参加2名が揃ったら先手=creatorId（なければ先頭）で開始。
-// そのまま置き換え
 function listenRoom(onState, onGuess) {
   const db = ensureDB();
   const roomRef = doc(db, "rooms", state.roomId);
 
-  // --- 内部ヘルパー（この部屋での一意ID管理 & 時計表示） ---
   const getBaseId = () => state.me || (typeof getPlayerId === "function" ? getPlayerId() : null);
   const scopedKey = (rid) => `pg-room-${rid}-pid`;
   const getScopedId = () => {
@@ -297,28 +549,30 @@ function listenRoom(onState, onGuess) {
     return `${mm}:${ss}`;
   };
 
-  // 既存購読を解除してから再購読
   try { state.unsubRoom && state.unsubRoom(); } catch {}
   try { state.unsubGuesses && state.unsubGuesses(); } catch {}
+  try { state.unsubSkills && state.unsubSkills(); } catch {}
   state.unsubRoom = null;
   state.unsubGuesses = null;
+  state.unsubSkills = null;
 
-  // ---- rooms/{roomId} を購読 ----
   state.unsubRoom = onSnapshot(roomRef, async (snap) => {
     if (!snap.exists()) {
-      // ホストがdocを作るまで待機
       hideInputArea();
       hideResultsArea();
       setGameTitle("対戦ロビー");
       setGameStatus("ホストの準備を待っています…");
       state.roomData = null;
+      updateSkillUI(null);
+      clearHistoryMask();
+      resetSkillState();
       return;
     }
 
     const data = snap.data() || {};
+    const prevStatus = state.roomData ? state.roomData.status : null;
     state.roomData = data;
 
-    // 正解の共有（初回のみ）
     if (!state.correct) {
       if (DEBUG_FIXED_ANSWER) {
         const fixed = Object.values(allPokemonData).find(p => p.id === 149) || Object.values(allPokemonData)[0];
@@ -328,7 +582,6 @@ function listenRoom(onState, onGuess) {
       }
     }
 
-    // ===== LOBBY =====
     if (data.status === "lobby") {
       const players = Array.isArray(data.players) ? data.players : [];
       const baseId = getBaseId();
@@ -337,12 +590,13 @@ function listenRoom(onState, onGuess) {
       state.turnNoticeShownFor = null;
       state.resultModalShown = false;
       hideTurnModal();
+      updateSkillUI(null);
+      clearHistoryMask();
+      resetSkillState();
 
-      // 自動ジョイン：自分が未登録 & 空きあり → 参加
       const hasExact = players.some(p => p.id === myScoped);
       const hasBase  = baseId && players.some(p => p.id === baseId);
       if (!hasExact && players.length < 2 && baseId) {
-        // 同一ブラウザ2タブ対策：ベースIDが既に居る時は alt ID を採番
         if (myScoped === baseId && hasBase) myScoped = genAltId(baseId);
         try {
           await runTransaction(db, async (tx) => {
@@ -350,8 +604,8 @@ function listenRoom(onState, onGuess) {
             if (!cur.exists()) return;
             const r = cur.data() || {};
             const ps = Array.isArray(r.players) ? [...r.players] : [];
-            if (ps.some(p => p.id === myScoped)) return; // すでに入っていれば何もしない
-            if (ps.length >= 2) return;                  // 満員
+            if (ps.some(p => p.id === myScoped)) return;
+            if (ps.length >= 2) return;
             ps.push({ id: myScoped, joinedAt: Date.now() });
             const patch = { players: ps };
             if (!r.creatorId) patch.creatorId = (data.creatorId || myScoped);
@@ -364,7 +618,6 @@ function listenRoom(onState, onGuess) {
         }
       }
 
-      // 2人揃えば開始判定（creatorId優先は maybeStartMatch 側で処理）
       const iAmCreator = data.creatorId && state.me && state.me === data.creatorId;
       const iAmFallbackStarter = !data.creatorId && state.me && players[0]?.id === state.me;
       if (players.length === 2 && (iAmCreator || iAmFallbackStarter)) {
@@ -383,7 +636,6 @@ function listenRoom(onState, onGuess) {
       setGameStatus((data.players?.length || 0) >= 2 ? "準備中…" : "相手の参加を待っています…");
     }
 
-    // ===== PLAYING =====
     if (data.status === "playing") {
       hideLobby();
       hideRandomStartButton();
@@ -391,25 +643,28 @@ function listenRoom(onState, onGuess) {
       showResultsArea();
       hidePostGameActions();
       state.resultModalShown = false;
+      if (prevStatus !== "playing") {
+        resetSkillState();
+        clearHistoryMask();
+      }
 
       setGameTitle("対戦モード");
 
-      // 残り時間を即表示（連続更新は startInterval に任せる実装でもOK）
       const left = (data.endsAt || 0) - now();
       const mine = data.turnOf === state.me;
       setGameStatus(`${mine ? "あなた" : "相手"}の番です（残り ${fmtClock(left)}）`);
+      updateSkillUI(data);
 
       const currentTurn = data.turnNumber || 1;
       if (mine && state.turnNoticeShownFor !== currentTurn) {
         showTurnModal(currentTurn);
-      } else if (!mine) {
+      } else if (!mine && !state.holdHideBanner && !state.showingOpponentModal) {
         hideTurnModal();
       }
 
       try { startInterval && startInterval(); } catch {}
     }
 
-    // ===== ENDED =====
     if (data.status === "ended") {
       try { stopInterval && stopInterval(); } catch {}
       const win = data.winner === state.me;
@@ -419,6 +674,8 @@ function listenRoom(onState, onGuess) {
       hideTurnModal();
       state.turnNoticeShownFor = null;
       hideInputArea();
+      updateSkillUI(null);
+      clearHistoryMask();
       if (!state.resultModalShown && state.correct) {
         const verdict = win ? "勝利" : "敗北";
         showResultModal(state.correct, verdict, "versus", 0);
@@ -429,7 +686,6 @@ function listenRoom(onState, onGuess) {
     onState && onState(data);
   });
 
-  // ---- guesses を購読（追加分だけ処理） ----
   const q = query(collection(roomRef, "guesses"), orderBy("ts", "asc"));
   state.unsubGuesses = onSnapshot(q, (qs) => {
     qs.docChanges().forEach((ch) => {
@@ -441,13 +697,16 @@ function listenRoom(onState, onGuess) {
         return;
       }
 
-      // フォールバック（onGuess未提供でも動くように）
+      if (g.masked && g.by !== state.me) {
+        renderMaskedVersusGuess(false);
+        return;
+      }
+
       const guessed = Object.values(allPokemonData).find(p => p.id === g.id);
       if (!guessed || !state.correct) return;
       const result = comparePokemon(guessed, state.correct);
       const row = renderResult(guessed, result, "classic", !!g.isCorrect);
 
-      // あなた=赤／相手=青。アコーディオンのdisabledグレー化を無効化
       const targetRow = row || document.querySelector(".result-row");
       if (targetRow) {
         targetRow.classList.add(g.by === state.me ? "by-me" : "by-opponent");
@@ -456,6 +715,22 @@ function listenRoom(onState, onGuess) {
       }
     });
   });
+
+  const skillsRef = query(collection(roomRef, "skills"), orderBy("ts", "asc"));
+  state.unsubSkills = onSnapshot(skillsRef, {
+    next: (qs) => {
+    qs.docChanges().forEach((ch) => {
+      if (ch.type !== "added") return;
+      handleSkillEvent(ch.doc.data());
+    });
+      },
+      error: (e) => {
+        console.warn("[Versus] skills listener error", e);
+        const bar = document.getElementById("versus-skill-bar");
+        if (bar) bar.classList.add("hidden");
+        showToast("権限エラー：スキルの同期が無効です");
+      }
+    });
 }
 
 
@@ -470,14 +745,23 @@ async function postGuess(guessName) {
   if (!guessed) return;
 
   const isCorrect = (state.correct && guessed.id === state.correct.id);
+  const turnNumber = data.turnNumber || 1;
+  const shouldMask = state.skillEffects.maskNextGuessTurn === turnNumber;
+  const extraTurnActive = state.skillEffects.extraTurnForTurn === turnNumber;
 
   await addDoc(collection(ensureDB(), "rooms", state.roomId, "guesses"), {
     by: state.me,
     name: guessed.name,
     id: guessed.id,
     isCorrect,
+    masked: shouldMask,
+    turnNumber,
     ts: serverTimestamp()
   });
+
+  if (shouldMask && state.skillEffects.maskNextGuessTurn === turnNumber) {
+    state.skillEffects.maskNextGuessTurn = null;
+  }
 
   if (isCorrect) {
     const roomRef = doc(ensureDB(), "rooms", state.roomId);
@@ -489,21 +773,33 @@ async function postGuess(guessName) {
       }
     });
   } else {
-    // ② 不正解なら即ターン交代（1手1回答ルール）
     const roomRef = doc(ensureDB(), "rooms", state.roomId);
     await runTransaction(ensureDB(), async (tx) => {
       const s = await tx.get(roomRef);
       if (!s.exists()) return;
       const r = s.data();
       if (r.status !== "playing") return;
-      if (r.turnOf !== state.me) return; // 競合安全
-      const other = opponentId(r.players, state.me) || state.me;
-      tx.update(roomRef, {
-        turnOf: other,
-        turnNumber: (r.turnNumber || 1) + 1,
-        endsAt: now() + V90
-      });
+      if (r.turnOf !== state.me) return;
+      if (extraTurnActive) {
+        tx.update(roomRef, {
+          turnOf: state.me,
+          turnNumber: (r.turnNumber || 1) + 1,
+          endsAt: now() + V90
+        });
+      } else {
+        const other = opponentId(r.players, state.me) || state.me;
+        tx.update(roomRef, {
+          turnOf: other,
+          turnNumber: (r.turnNumber || 1) + 1,
+          endsAt: now() + V90
+        });
+      }
     });
+    if (!extraTurnActive) showOpponentModal();
+  }
+
+  if (extraTurnActive && state.skillEffects.extraTurnForTurn === turnNumber) {
+    state.skillEffects.extraTurnForTurn = null;
   }
 }
 
@@ -526,14 +822,27 @@ async function forceAdvanceTurnIfExpired() {
   });
 }
 
-// ---- public bootstrap ----
 function boot() {
-  state.me = state.me || BASE_PLAYER_ID;  // 遅延初期化
+  state.me = state.me || BASE_PLAYER_ID;
+  resetSkillState();
+  clearHistoryMask();
+  updateSkillUI(null);
 
   const html = `
-    <div class="vlobby">
-      <div class="vlobby-card">
-        <div class="vlobby-body">
+    <div class="vlobby-card">
+      <div class="vlobby-body">
+        <!-- ルーム作成 -->
+        <section class="vlobby-panel vlobby-create">
+          <h4 class="vlobby-panel-title">ルームを作成</h4>
+          <p class="vlobby-panel-description">表示されたコードを共有してください</p>
+            <div class="vlobby-code">
+              <span id="vs-my-code">------</span>
+            </div>
+            <div class="vlobby-actions">
+              <button id="vs-create" class="vlobby-btn primary">コード生成</button>
+            </div>
+        </section>
+      <div class="vlobby-divider" role="presentation"><span>or</span></div>
         <!-- ルーム参加 -->
         <section class="vlobby-panel vlobby-join">
           <h4 class="vlobby-panel-title">ルームに参加</h4>
@@ -555,29 +864,14 @@ function boot() {
           </div>
           <p id="vlobby-error" class="vlobby-error" aria-live="polite" style="display:none;"></p>
         </section>
-        <div class="vlobby-divider" role="presentation"><span>or</span></div>
-          <!-- ルーム作成 -->
-          <section class="vlobby-panel vlobby-create">
-            <h4 class="vlobby-panel-title">ルームを作成</h4>
-            <p class="vlobby-panel-description">表示されたコードを共有してください</p>
-              <div class="vlobby-code">
-                <span id="vs-my-code">------</span>
-              </div>
-            <div class="vlobby-actions">
-              <button id="vs-create" class="vlobby-btn primary">コード生成</button>
-            </div>
-          </section>
-        </div>
       </div>
     </div>
 
   `;
   setLobbyContent(html);
 
-  // クリック委譲で安全にイベントを束ねる（nullに対してonclickしない）
   const root = ensureLobbyRoot();
 
-  // --- ネットワーク状態をUIに反映 ---
   const syncNetUI = () => {
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     root.querySelectorAll('#vs-create, #vs-join, #vs-code')
@@ -594,16 +888,13 @@ function boot() {
     const btn = ev.target.closest("#vs-create, #vs-join");
     if (!btn) return;
 
-    // クリック委譲の中だけ置換
     if (btn.id === "vs-create") {
-      // 即時発行
-      const { code } = await createRoom(); // ← 即返却
+      const { code } = await createRoom();
       const created  = root.querySelector("#create-result");
       const codeSpan = root.querySelector("#vs-my-code");
       if (created)  created.style.display = "";
       if (codeSpan) codeSpan.textContent = code;
 
-      // すぐ監視開始（docは後から現れてOK）
       listenRoom(handleRoomState, handleGuessAdded);
       return;
     }
@@ -613,25 +904,29 @@ function boot() {
       const code = (input?.value || "").trim();
       if (!/^\d{6}$/.test(code)) { alert("6桁の数字を入力してください"); return; }
 
-      await joinRoomByCode(code);                // 即返却
-      listenRoom(handleRoomState, handleGuessAdded); // すぐ監視開始
+      await joinRoomByCode(code);
+      listenRoom(handleRoomState, handleGuessAdded);
       return;
     }
   });
 }
 
 function handleRoomState(_data) {
-  // UIは listenRoom 内で更新済み
+
 }
 
 function handleGuessAdded(g) {
+  if (g.masked && g.by !== state.me) {
+    renderMaskedVersusGuess(false);
+    return;
+  }
+
   const guessed = Object.values(allPokemonData).find(p => p.id === g.id);
   if (!guessed || !state.correct) return;
   const result = comparePokemon(guessed, state.correct);
 
   const row = renderResult(guessed, result, "classic", !!g.isCorrect);
 
-  // ③ 行に「あなた/相手」の配色クラスを付与 & 誤ってdisabledなら解除
   const targetRow = row || document.querySelector(".result-row");
   if (targetRow) {
     targetRow.classList.add(g.by === state.me ? "by-me" : "by-opponent");
@@ -647,7 +942,6 @@ function handleGuess(guessRaw) {
   postGuess(name).catch((e)=> console.warn("[Versus] postGuess failed", e));
 }
 
-// 追加：作成者が裏で rooms/{code} を確保（なければ作成、あればplayersに自分を反映）
 async function claimRoomAsync(code) {
   const me = state.me;
   const roomRef = doc(ensureDB(), "rooms", code);
@@ -679,33 +973,35 @@ async function claimRoomAsync(code) {
   }
 }
 
-// 置換：押した瞬間に code を返す。Firestore確保は裏で開始。
 async function createRoom() {
   const me = state.me;
-  const code = sixDigit();           // 6桁生成（先頭0可）
+  const code = sixDigit();
   state.roomId = code;
   state.code   = code;
-  // Firestore確保は待たない（UIは即返し）
-  claimRoomAsync(code);              // 裏で確保を走らせる
-  return { roomId: code, code };     // ← 即返却
+  claimRoomAsync(code);
+  return { roomId: code, code };
 }
 
-
-// ---- 末尾の export の少し上あたりに追加 ----
 function teardown() {
   try { stopInterval(); } catch {}
   try { state.unsubRoom && state.unsubRoom(); } catch {}
   try { state.unsubGuesses && state.unsubGuesses(); } catch {}
+  try { state.unsubSkills && state.unsubSkills(); } catch {}
   state.unsubRoom = null;
   state.unsubGuesses = null;
+  state.unsubSkills = null;
 
-  // UIを完全撤去（イベント委譲ごと破棄）
   const root = document.getElementById('versus-lobby-area');
   if (root && root.parentNode) {
     root.parentNode.removeChild(root);
   }
 
+  const skillBar = document.getElementById('versus-skill-bar');
+  if (skillBar) skillBar.classList.add('hidden');
+  clearHistoryMask();
+  resetSkillState();
   hideTurnModal();
+
   state.turnNoticeShownFor = null;
   state.resultModalShown = false;
   if (state.turnModalTimeout) {
@@ -713,12 +1009,10 @@ function teardown() {
     state.turnModalTimeout = null;
   }
 
-  // 状態リセット（次回 boot で再初期化される）
-  state.roomId = null;
+  state.roomId = null; 
   state.code = null;
   state.correct = null;
 }
 
-// 既存の export に teardown を足す
 export const PGVersus = { boot, handleGuess, forceAdvanceTurnIfExpired, teardown };
 globalThis._pgVersus = PGVersus;
