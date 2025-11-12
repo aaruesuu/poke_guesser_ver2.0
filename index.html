@@ -58,6 +58,8 @@
             </div>
             <div id="game-status"></div>
 
+            <button id="hint-button" class="hint-button hidden" type="button">ヒント</button>
+            
             <div id="game-controls">
               <button id="random-start-button" class="action-button hidden">スタート</button>
 
@@ -77,6 +79,13 @@
 
           <div id="results-area">
             <div id="result-history"></div>
+          </div>
+
+          <div id="versus-skill-bar" class="hidden" aria-live="polite">
+            <button class="versus-skill-button" data-skill="mask" type="button" title="このターンの回答を相手には『?』で表示します">秘匿回答</button>
+            <button class="versus-skill-button" data-skill="extra" type="button" title="このターンの次も自分の番になります">連続ターン</button>
+            <button class="versus-skill-button" data-skill="hint" type="button" title="ヒントを1つ確認します">ヒント確認</button>
+            <button class="versus-skill-button" data-skill="hide" type="button" title="相手の履歴を一時的に非表示にします">履歴隠し</button>
           </div>
 
           <div id="post-game-actions" class="hidden">
@@ -99,7 +108,11 @@
         <button id="result-modal-close-button" class="modal-close-button">×</button>
 
         <h1 id="result-modal-verdict">
-          <img class="verdict-cracker-img left" src="img/cracker.png" alt="cracker" />
+          <img
+            id="verdict-cracker-img-left"
+            class="verdict-cracker-img left"
+            src="img/cracker.png"
+            alt="cracker" />
           <span></span>
           <img
             id="verdict-cracker-img-right"
@@ -132,6 +145,21 @@
         </div>
       </div>
     </div>
+
+    <!-- Hint Modal -->
+    <div id="hint-modal-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="hint-modal-title">
+      <div id="hint-modal">
+        <button id="hint-modal-close-button" class="modal-close-button" type="button">×</button>
+        <h2 id="hint-modal-title">ヒント</h2>
+        <p id="hint-modal-description">確認する項目を選択してください</p>
+        <div id="hint-modal-options" role="listbox"></div>
+        <div id="hint-modal-result" class="hidden" aria-live="polite">
+          <p class="hint-selected-label"></p>
+          <p class="hint-selected-value"></p>
+        </div>
+      </div>
+    </div>
+
     <script>
       window.FIREBASE_CONFIG = {
           apiKey: "AIzaSyC3MFZCk5VdYU8FNx9XoqEZFOpDOJ9FWr0",
