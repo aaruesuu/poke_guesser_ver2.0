@@ -1,6 +1,15 @@
-import { allPokemonData } from "./all-pokemon-data.js";
-import { normalizePokemonName } from "./utils.js";
-import { comparePokemon } from "./compare.js";
+import {
+  allPokemonData
+} from "./all-pokemon-data.js";
+
+import {
+  normalizePokemonName
+} from "./utils.js";
+
+import {
+  comparePokemon
+} from "./compare.js";
+
 import {
   clearResults,
   hideInputArea,
@@ -20,14 +29,22 @@ import {
   clearGuessInput,
   blurGuessInput,
   openModal,
+  showHintButton,
+  hideHintButton,
+  setHintButtonEnabled,
 } from "./dom.js";
 
+import {
+  requestHint,
+  getHintKeysForMode
+} from "./hints.js";
 
-// === DEBUG: 正解ポケモン固定（開発中のみ有効にしてください） ===
-const DEBUG_FIXED_ANSWER = true;           // ← 本番戻すときは false に
+
+// === 正解ポケモン固定 ===
+const DEBUG_FIXED_ANSWER = false;
 const DEBUG_FIXED_NAME = 'カイリュー';
 const DEBUG_FIXED_ID = 149;
-// =======================================================
+// =======================
 
 let gameMode = null;
 let guessesLeft = 10;
@@ -36,8 +53,8 @@ const allPokemonNames = Object.keys(allPokemonData);
 let correctPokemon = null;
 let answeredPokemonNames = new Set();
 let correctCount = 0;
-let totalGuesses = 0;
 let correctlyAnsweredPokemon = [];
+const hintRevealedKeys = new Set();
 
 export function initGame() {
   switchScreen('mode-selection-screen');
@@ -54,28 +71,33 @@ export const Handlers = {
   onRandomStart:  () => handleRandomStart(),
   onPlayAgain:    () => startGame(gameMode || 'classic'),
   onBackToMenu:   () => { resetGame(); switchScreen('mode-selection-screen'); },
+  onHint:         () => handleHintRequest(),
 };
 
 function startGame(mode) {
   gameMode = mode;
-  // 先頭に追加（全ての「通常モード開始」や「ホームへ戻る」ハンドラに）
+
   if (globalThis._pgVersus && typeof globalThis._pgVersus.teardown === 'function') {
     globalThis._pgVersus.teardown();
   }
-  // 念のため：残骸があれば除去
-  document.getElementById('versus-lobby-area')?.remove();
 
-  // 通常モードの表示ルールを強制（あなたの既存処理に合わせてそのままでOK）
+  document.getElementById('versus-lobby-area')?.remove();
   document.getElementById('game-header-area')?.style && (document.getElementById('game-header-area').style.display = '');
   showResultsArea();
-
   resetGame();
   switchScreen('game-container');
   setupUIForMode();
   initRound();
+  
+  if (gameMode !== 'versus') {
+    showHintButton();
+    updateHintAvailability();
+  }
 }
 
 function initRound() {
+  hintRevealedKeys.clear();
+
     if (DEBUG_FIXED_ANSWER) {
       const byName = allPokemonData[DEBUG_FIXED_NAME];
       const byId   = Object.values(allPokemonData).find(p => p.id === DEBUG_FIXED_ID);
@@ -92,6 +114,7 @@ function initRound() {
     answeredPokemonNames = new Set();
     clearResults();
     setGameStatus(`残り回数：${guessesLeft}`);
+    updateHintAvailability();
 }
   
 
@@ -99,35 +122,42 @@ function resetGame() {
   gameOver = false;
   guessesLeft = 10;
   correctCount = 0;
-  totalGuesses = 0;
   correctlyAnsweredPokemon = [];
+  
+  hintRevealedKeys.clear();
+  
   clearResults();
   showInputArea();
   hidePostGameActions();
+
   const playAgainBtn = document.getElementById('post-game-play-again');
   if (playAgainBtn) playAgainBtn.classList.remove('hidden');
   const backToMenuBtn = document.getElementById('post-game-back-to-menu');
   if (backToMenuBtn) backToMenuBtn.textContent = 'モード選択へ';
+  
   setGameStatus('');
+  hideHintButton();
+  setHintButtonEnabled(false);
 }
 
 function isCorrectAnswer(guessed, correct) {
   if (!guessed || !correct) return false;
   if (guessed.id === correct.id) return true;
   if (normalizePokemonName(guessed.name) === normalizePokemonName(correct.name)) return true;
+  
   return false;
 }
 
 function handleGuess() {
   if (gameOver) return;
 
-  // Versusモードでは専用ハンドラに委譲
   if (gameMode === 'versus' && globalThis._pgVersus && typeof globalThis._pgVersus.handleGuess === 'function') {
     const guessRaw = getGuessInputValue();
     globalThis._pgVersus.handleGuess(guessRaw);
     hideSuggestions();
     clearGuessInput();
     blurGuessInput();
+    
     return;
   }
 
@@ -146,6 +176,7 @@ function handleGuess() {
     hideSuggestions();
     openModal(null, "入力されたポケモンが見つかりませんでした");
     blurGuessInput();
+    
     return;
   }
 
@@ -199,21 +230,25 @@ function setupUIForMode() {
     hideInputArea();
   }
   setGameStatus('');
+  updateHintAvailability();
 }
 
 function endGame(isWin) {
   gameOver = true;
   showResultModal(correctPokemon, isWin ? "正解" : "残念", gameMode, guessesLeft);
+  setHintButtonEnabled(false);
 }
 
 function startVersus() {
   gameMode = 'versus';
   resetGame();
+  hideHintButton();
+  setHintButtonEnabled(false);
   switchScreen('game-container');
   setGameTitle('対戦ロビー');
   setGameStatus('ルームを作成するか、コードを入力して参加してください');
   hideRandomStartButton();
-  hideInputArea(); // ロビー中は入力不可
+  hideInputArea();
   hideResultsArea();
   const tryBoot = () => {
     if (globalThis._pgVersus && typeof globalThis._pgVersus.boot === 'function') {
@@ -231,4 +266,45 @@ function startVersus() {
       .catch((e) => console.error('[Versus] failed to load module', e));
   };
   tryBoot();
+}
+
+async function handleHintRequest() {
+  if (gameMode === 'versus' || gameOver) return;
+  if (!correctPokemon) return;
+
+  const result = await requestHint({
+    pokemon: correctPokemon,
+    mode: gameMode,
+    disabledKeys: hintRevealedKeys,
+  });
+
+  if (result && result.key) {
+    hintRevealedKeys.add(result.key);
+    updateHintAvailability();
+  }
+}
+
+function updateHintAvailability() {
+  if (gameMode === 'versus') {
+    hideHintButton();
+    setHintButtonEnabled(false);
+    return;
+  }
+
+  if (!correctPokemon) {
+    setHintButtonEnabled(false);
+    return;
+  }
+
+  const keys = getHintKeysForMode(gameMode);
+  if (!keys || keys.length === 0) {
+    hideHintButton();
+    setHintButtonEnabled(false);
+    return;
+  }
+
+  showHintButton();
+  const remaining = keys.filter((key) => !hintRevealedKeys.has(key));
+  const hasAvailable = remaining.length > 0;
+  setHintButtonEnabled(hasAvailable && !gameOver);
 }
