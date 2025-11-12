@@ -1,4 +1,7 @@
-import { allPokemonData } from "./all-pokemon-data.js";
+import {
+  allPokemonData
+} from "./all-pokemon-data.js";
+
 import {
   formatDisplayName,
   normalizePokemonName,
@@ -18,6 +21,7 @@ const versusModeButton = document.getElementById('versus-mode-button');
 
 const guessButton = document.getElementById('guess-button');
 const homeButton = document.getElementById('home-button');
+const hintButton = document.getElementById('hint-button');
 
 const howToPlayButton = document.getElementById('how-to-play-button');
 const howToPlayButtonHome = document.getElementById('how-to-play-button-home');
@@ -69,7 +73,7 @@ function toggleAccordion(btn) {
 }
 
 export function initDOM(handlers) {
-  const { onStartClassic, onStartRandom, onStartStats, onGuess, onRandomStart, onPlayAgain, onBackToMenu } = handlers;
+  const { onStartClassic, onStartRandom, onStartStats, onGuess, onRandomStart, onPlayAgain, onBackToMenu, onHint } = handlers;
 
   if (hamburgerMenu && navMenu) {
     hamburgerMenu.addEventListener('click', () => {
@@ -91,6 +95,7 @@ export function initDOM(handlers) {
   if (randomStartButton) randomStartButton.addEventListener('click', onRandomStart);
   if (guessButton) guessButton.addEventListener('click', onGuess);
   if (homeButton) homeButton.addEventListener('click', onBackToMenu);
+  if (hintButton && typeof onHint === 'function') hintButton.addEventListener('click', onHint);
   if (postGamePlayAgainButton) postGamePlayAgainButton.addEventListener('click', onPlayAgain);
   if (postGameBackToMenuButton) postGameBackToMenuButton.addEventListener('click', onBackToMenu);
 
@@ -164,28 +169,24 @@ export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = fa
     row.classList.add('is-correct');
   }
 
-  // --- ヘッダー ---
   const { main: mainName, form: formName } = formatDisplayName(pokemon.name);
   const displayNameHTML = formName ? `${mainName}<br><span class="form-name">${formName}</span>` : mainName;
 
-  // button化し、モーダルと同じ構造に
   const header = document.createElement('button');
   header.type = 'button';
   const accId = `rh-acc-${++resultAccordionSeq}`;
   const panelId = `${accId}-panel`;
 
   header.classList.add('result-header', 'accordion-trigger');
-  // 既存アコーディオンの属性を流用
   header.setAttribute('id', accId);
   header.setAttribute('aria-controls', panelId);
-  header.setAttribute('aria-expanded','true'); // ← 基本開く
+  header.setAttribute('aria-expanded','true');
 
   header.innerHTML = `
     <img src="${pokemon.sprite}" alt="${pokemon.name}" class="result-sprite">
     <div class="result-name">${displayNameHTML}</div>
   `;
 
-  // アイコン（既存CSSが回転制御）
   const icon = document.createElement('span');
   icon.className = 'accordion-icon';
   icon.setAttribute('aria-hidden','true');
@@ -193,13 +194,11 @@ export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = fa
 
   row.appendChild(header);
 
-  // 初回だけ既存アコーディオン初期化 → 以後も同じ挙動で利用
   if (!resultHistory.dataset.accordionReady) {
     setupAccordion(resultHistory);
     resultHistory.dataset.accordionReady = "1";
   }
 
-  // クリック/Enter/Spaceで開閉（既存のトグルを利用）
   header.addEventListener('click', () => toggleAccordion(header));
   header.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -208,18 +207,6 @@ export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = fa
     }
   });
 
-  // const { main: mainName, form: formName } = formatDisplayName(pokemon.name);
-  // const displayNameHTML = formName ? `${mainName}<br><span class="form-name">${formName}</span>` : mainName;
-  // const header = document.createElement('div');
-  // header.classList.add('result-header');
-  // header.innerHTML = `
-  //   <img src="${pokemon.sprite}" alt="${pokemon.name}" class="result-sprite">
-  //   <div class="result-name">${displayNameHTML}</div>
-  // `;
-  // row.appendChild(header);
-
-  // --- ボディ ---
-  // bodyContainer.classList.add('result-body');
   const bodyContainer = document.createElement('div');
   bodyContainer.classList.add('result-body', 'accordion-panel');
 
@@ -237,7 +224,6 @@ export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = fa
     pokemon.stats.spAttack + pokemon.stats.spDefense + pokemon.stats.speed;
 
   if (gameMode === 'stats') {
-    // 種族値
     bodyContainer.innerHTML = `
       <div class="${comparisonResult.stats.hp.class}">
         <div class="value-wrapper"><span>${pokemon.stats.hp}</span><span class="${comparisonResult.stats.hp.symbolClass}">${comparisonResult.stats.hp.symbol}</span></div>
@@ -259,7 +245,6 @@ export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = fa
       </div>
     `;
   } else {
-    // クラシック/ランダム
     bodyContainer.innerHTML = `
       <div class="${comparisonResult.debut.class}">
         <div class="value-wrapper">
@@ -373,6 +358,13 @@ export function showResultModal(pokemon, verdict, gameMode, guessesLeft) {
   if (postGameActions) postGameActions.classList.add('hidden');
   const playAgainBtn = document.getElementById('post-game-play-again');
   const backToMenuBtn = document.getElementById('post-game-back-to-menu');
+  if (postGameActions) {
+    if (gameMode === 'versus') {
+      postGameActions.classList.add('is-versus');
+    } else {
+      postGameActions.classList.remove('is-versus');
+    }
+  }
   if (playAgainBtn) {
     if (gameMode === 'versus') {
       playAgainBtn.classList.add('hidden');
@@ -391,6 +383,45 @@ export function clearResults() { resultHistory.innerHTML = ""; }
 export function blurGuessInput(){ if (guessInput) guessInput.blur(); }
 export function getGuessInputValue(){ return guessInput ? guessInput.value.trim() : ""; }
 export function clearGuessInput(){ if (guessInput) guessInput.value = ""; }
+
+export function showHintButton() {
+  if (hintButton) {
+    hintButton.classList.remove('hidden');
+  }
+}
+
+export function hideHintButton() {
+  if (hintButton) {
+    hintButton.classList.add('hidden');
+  }
+}
+
+export function setHintButtonEnabled(enabled) {
+  if (hintButton) {
+    hintButton.disabled = !enabled;
+    hintButton.classList.toggle('is-disabled', !enabled);
+    hintButton.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+  }
+}
+
+export function renderMaskedVersusGuess(isMine = false) {
+  const row = document.createElement('div');
+  row.classList.add('result-row', 'result-row-classic', 'is-masked');
+  row.classList.add(isMine ? 'by-me' : 'by-opponent');
+
+  const header = document.createElement('div');
+  header.classList.add('masked-result-header');
+  header.innerHTML = '<span class="masked-question">???</span>';
+  row.appendChild(header);
+
+  const body = document.createElement('div');
+  body.classList.add('masked-result-body');
+  body.innerHTML = `<p>${isMine ? 'この回答は相手から秘匿されています' : '相手の回答は秘匿されています'}</p>`;
+  row.appendChild(body);
+
+  resultHistory.insertAdjacentElement('afterbegin', row);
+  return row;
+}
 
 
 let suggestionRequestToken = 0;
@@ -437,7 +468,6 @@ function handleInput() {
   }
 }
   
-// ===== モーダル共通 =====
 export function openModal(title, content, options = {}) {
 
   const { addHeaderDivider = true } = options;
