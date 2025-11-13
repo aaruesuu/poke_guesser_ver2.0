@@ -3,6 +3,10 @@ import {
 } from "./all-pokemon-data.js";
 
 import {
+  finalEvoData
+} from "./final-evo-data.js";
+
+import {
   normalizePokemonName
 } from "./utils.js";
 
@@ -50,6 +54,7 @@ let gameMode = null;
 let guessesLeft = 10;
 let gameOver = false;
 const allPokemonNames = Object.keys(allPokemonData);
+const finalEvolutionPokemonNames = allPokemonNames.filter((name) => finalEvoData[name]?.isFinalEvolution);
 let correctPokemon = null;
 let answeredPokemonNames = new Set();
 let correctCount = 0;
@@ -95,26 +100,33 @@ function startGame(mode) {
   }
 }
 
+function getEligiblePokemonNames() {
+  if (gameMode === 'stats') {
+    return finalEvolutionPokemonNames.length ? finalEvolutionPokemonNames : allPokemonNames;
+  }
+  return allPokemonNames;
+}
+
 function initRound() {
   hintRevealedKeys.clear();
 
-    if (DEBUG_FIXED_ANSWER) {
-      const byName = allPokemonData[DEBUG_FIXED_NAME];
-      const byId   = Object.values(allPokemonData).find(p => p.id === DEBUG_FIXED_ID);
-      correctPokemon = byName || byId || null;
-    }
-  
-    if (!correctPokemon) {
-      const name = allPokemonNames[Math.floor(Math.random() * allPokemonNames.length)];
-      correctPokemon = allPokemonData[name];
-    }
-  
-    guessesLeft = 10;
-    gameOver = false;
-    answeredPokemonNames = new Set();
-    clearResults();
-    setGameStatus(`残り回数：${guessesLeft}`);
-    updateHintAvailability();
+  if (DEBUG_FIXED_ANSWER) {
+    const byName = allPokemonData[DEBUG_FIXED_NAME];
+    const byId   = Object.values(allPokemonData).find(p => p.id === DEBUG_FIXED_ID);
+    correctPokemon = byName || byId || null;
+  } else {
+    const candidates = getEligiblePokemonNames();
+    const pool = candidates.length ? candidates : allPokemonNames;
+    const name = pool[Math.floor(Math.random() * pool.length)];
+    correctPokemon = allPokemonData[name] || null;
+  }
+
+  guessesLeft = 10;
+  gameOver = false;
+  answeredPokemonNames = new Set();
+  clearResults();
+  setGameStatus(`残り回数：${guessesLeft}`);
+  updateHintAvailability();
 }
   
 
