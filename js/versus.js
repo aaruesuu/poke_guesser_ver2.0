@@ -41,6 +41,33 @@ const SKILL_LABELS = {
 
 const DEBUG_FIXED_ANSWER = false;
 
+const TURN_MODAL_TYPES = {
+  BATTLE_START: "battle-start",
+  YOUR_TURN: "your-turn",
+  OPPONENT_TURN: "opponent-turn",
+};
+
+const TURN_MODAL_CONFIG = {
+  [TURN_MODAL_TYPES.BATTLE_START]: {
+    id: "versus-battle-start-modal",
+    defaultText: "バトルスタート！",
+    bannerClass: "battle-start",
+    duration: 2200,
+  },
+  [TURN_MODAL_TYPES.YOUR_TURN]: {
+    id: "versus-your-turn-modal",
+    defaultText: "あなたの番",
+    bannerClass: "your-turn",
+    duration: 2200,
+  },
+  [TURN_MODAL_TYPES.OPPONENT_TURN]: {
+    id: "versus-opponent-turn-modal",
+    defaultText: "相手の番",
+    bannerClass: "opponent-turn",
+    duration: 2200,
+  },
+};
+
 function ensureFirebase() {
   if (getApps().length) return getApps()[0];
   if (globalThis.firebaseApp) return globalThis.firebaseApp;
@@ -62,7 +89,9 @@ const state = {
   roomData: null,
   lastAdvanceAttempt: 0,
   turnNoticeShownFor: null,
-  turnModalTimeout: null,
+  turnModalTimeouts: {},
+  turnModalCallbacks: {},
+  pendingTurnModal: null,
   resultModalShown: false,
   skillUsed: false,
   usedSkillType: null,
@@ -412,77 +441,155 @@ function stopInterval() {
   if (state.interval) { clearInterval(state.interval); state.interval = null; }
 }
 
-function ensureTurnModal() {
-  let overlay = document.getElementById("versus-turn-modal");
+function ensureTurnModal(type) {
+  const config = TURN_MODAL_CONFIG[type];
+  if (!config) return null;
+
+  let overlay = document.getElementById(config.id);
   if (!overlay) {
     overlay = document.createElement("div");
-    overlay.id = "versus-turn-modal";
-    overlay.className = "hidden";
+    overlay.id = config.id;
+    overlay.className = "versus-modal-overlay hidden";
     overlay.innerHTML = `
       <div class="versus-turn-modal-content" role="alertdialog" aria-live="assertive">
-        <div class="versus-turn-banner">
-          <span class="versus-turn-text">あなたの番</span>
+        <div class="versus-turn-banner ${config.bannerClass}">
+          <span class="versus-turn-text">${config.defaultText}</span>
         </div>
       </div>
     `;
-    overlay.addEventListener("click", hideTurnModal);
+    overlay.addEventListener("click", () => hideModal(type));
     document.body.appendChild(overlay);
   }
   return overlay;
 }
-function showBanner(text) {
-  const overlay = ensureTurnModal();
-  const textEl = overlay.querySelector('.versus-turn-text');
-  if (textEl) textEl.textContent = text;
-  overlay.classList.remove('hidden');
-  overlay.setAttribute('aria-hidden', 'false');
-  const banner = overlay.querySelector('.versus-turn-banner');
+
+function clearModalTimeout(type) {
+  if (state.turnModalTimeouts[type]) {
+    clearTimeout(state.turnModalTimeouts[type]);
+    delete state.turnModalTimeouts[type];
+  }
+}
+
+function scheduleModalHide(type, duration, callback) {
+  clearModalTimeout(type);
+  if (callback) {
+    state.turnModalCallbacks[type] = callback;
+  } else {
+    delete state.turnModalCallbacks[type];
+  }
+  if (typeof duration !== "number" || duration <= 0) return;
+  state.turnModalTimeouts[type] = setTimeout(() => {
+    delete state.turnModalTimeouts[type];
+    hideModal(type);
+  }, duration);
+}
+
+function showModal(type, text) {
+  const config = TURN_MODAL_CONFIG[type];
+  if (!config) return null;
+  Object.keys(TURN_MODAL_CONFIG).forEach((key) => {
+    if (key !== type) hideModal(key, { runCallback: false });
+  });
+  const overlay = ensureTurnModal(type);
+  if (!overlay) return null;
+  const textEl = overlay.querySelector(".versus-turn-text");
+  if (textEl) textEl.textContent = text || config.defaultText;
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+  const banner = overlay.querySelector(".versus-turn-banner");
   if (banner) {
-    banner.classList.remove('animate');
+    banner.classList.remove("animate");
     void banner.offsetWidth;
-    banner.classList.add('animate');
+    banner.classList.add("animate");
   }
   return overlay;
 }
 
+function hideModal(type, { runCallback = true } = {}) {
+  const config = TURN_MODAL_CONFIG[type];
+  if (!config) return;
+  const overlay = document.getElementById(config.id);
+  const callback = state.turnModalCallbacks[type];
+  if (!overlay) {
+    if (runCallback && typeof callback === "function") {
+      delete state.turnModalCallbacks[type];
+      try { callback(); } catch (err) { console.warn("[Versus] turn modal callback failed", err); }
+    } else {
+      delete state.turnModalCallbacks[type];
+    }
+    return;
+  }
+  clearModalTimeout(type);
+  overlay.classList.add("hidden");
+  overlay.setAttribute("aria-hidden", "true");
+  if (runCallback && typeof callback === "function") {
+    delete state.turnModalCallbacks[type];
+    try { callback(); } catch (err) { console.warn("[Versus] turn modal callback failed", err); }
+  } else {
+    delete state.turnModalCallbacks[type];
+  }
+}
+
+function hideAllTurnModals(options = { runCallback: false }) {
+  Object.keys(TURN_MODAL_CONFIG).forEach((type) => hideModal(type, options));
+}
+
+function queueTurnModal(turnNumber, mine) {
+  state.pendingTurnModal = { turnNumber, mine };
+}
+
+function flushPendingTurnModal() {
+  if (!state.pendingTurnModal) return;
+  const { turnNumber, mine } = state.pendingTurnModal;
+  state.pendingTurnModal = null;
+  if (mine) {
+    showTurnModal(turnNumber);
+  } else {
+    showOpponentModal();
+  }
+}
+
 function showTurnModal(turnNumber) {
-  showBanner('あなたの番');
+  state.pendingTurnModal = null;
+  showModal(TURN_MODAL_TYPES.YOUR_TURN);
   state.turnNoticeShownFor = turnNumber;
-  if (state.turnModalTimeout) clearTimeout(state.turnModalTimeout);
-  state.turnModalTimeout = setTimeout(() => { hideTurnModal(); }, 1600);
+  scheduleModalHide(TURN_MODAL_TYPES.YOUR_TURN, TURN_MODAL_CONFIG[TURN_MODAL_TYPES.YOUR_TURN].duration);
 }
 
 function showOpponentModal() {
+  state.pendingTurnModal = null;
   state.showingOpponentModal = true;
   state.holdHideBanner = true;
-  showBanner('相手の番');
-  if (state.turnModalTimeout) clearTimeout(state.turnModalTimeout);
-  state.turnModalTimeout = setTimeout(() => {
-    hideTurnModal();
-    state.showingOpponentModal = false;
-    state.holdHideBanner = false;
-  }, 1600);
+  showModal(TURN_MODAL_TYPES.OPPONENT_TURN);
+  scheduleModalHide(
+    TURN_MODAL_TYPES.OPPONENT_TURN,
+    TURN_MODAL_CONFIG[TURN_MODAL_TYPES.OPPONENT_TURN].duration,
+    () => {
+      state.showingOpponentModal = false;
+      state.holdHideBanner = false;
+    },
+  );
 }
 
-function showBattleStartModal() {
- state.holdHideBanner = true;
- showBanner('バトルスタート！');
- if (state.turnModalTimeout) clearTimeout(state.turnModalTimeout);
- state.turnModalTimeout = setTimeout(() => {
- hideTurnModal();
- state.holdHideBanner = false;
- }, 1600);
+function showBattleStartModal(onComplete) {
+  state.holdHideBanner = true;
+  state.showingOpponentModal = false;
+  showModal(TURN_MODAL_TYPES.BATTLE_START);
+  scheduleModalHide(
+    TURN_MODAL_TYPES.BATTLE_START,
+    TURN_MODAL_CONFIG[TURN_MODAL_TYPES.BATTLE_START].duration,
+    () => {
+      state.holdHideBanner = false;
+      if (typeof onComplete === "function") onComplete();
+    },
+  );
 }
 
 function hideTurnModal() {
-  const overlay = document.getElementById("versus-turn-modal");
-  if (!overlay) return;
-  overlay.classList.add("hidden");
-  overlay.setAttribute("aria-hidden", "true");
-  if (state.turnModalTimeout) {
-    clearTimeout(state.turnModalTimeout);
-    state.turnModalTimeout = null;
-  }
+  hideAllTurnModals({ runCallback: false });
+  state.pendingTurnModal = null;
+  state.holdHideBanner = false;
+  state.showingOpponentModal = false;
 }
 
 function onTick() {
@@ -656,9 +763,18 @@ function listenRoom(onState, onGuess) {
       updateSkillUI(data);
 
       const currentTurn = data.turnNumber || 1;
-      if (mine && state.turnNoticeShownFor !== currentTurn) {
+      if (prevStatus !== "playing") {
+        if ((currentTurn || 0) <= 1) {
+          queueTurnModal(currentTurn, mine);
+          showBattleStartModal(() => flushPendingTurnModal());
+        } else if (mine) {
+          showTurnModal(currentTurn);
+        } else {
+          showOpponentModal();
+        }
+      } else if (mine && state.turnNoticeShownFor !== currentTurn && !state.pendingTurnModal) {
         showTurnModal(currentTurn);
-      } else if (!mine && !state.holdHideBanner && !state.showingOpponentModal) {
+      } else if (!mine && !state.holdHideBanner && !state.showingOpponentModal && !state.pendingTurnModal) {
         hideTurnModal();
       }
 
@@ -1004,10 +1120,9 @@ function teardown() {
 
   state.turnNoticeShownFor = null;
   state.resultModalShown = false;
-  if (state.turnModalTimeout) {
-    clearTimeout(state.turnModalTimeout);
-    state.turnModalTimeout = null;
-  }
+  state.turnModalTimeouts = {};
+  state.turnModalCallbacks = {};
+  state.pendingTurnModal = null;
 
   state.roomId = null; 
   state.code = null;
