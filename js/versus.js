@@ -12,6 +12,10 @@ import {
   hidePostGameActions,
   showResultModal,
   renderMaskedVersusGuess,
+  collapseResultRow,
+  lockResultRow,
+  unlockResultRow,
+  getResultRows,
 } from "./dom.js";
 import { requestHint } from "./hints.js";
 
@@ -23,7 +27,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const V90 = 90 * 1000;
-const HIDE_HISTORY_DURATION_MS = 20 * 1000;
+const HIDE_HISTORY_TURN_COUNT = 3;
 
 const SKILL_TYPES = {
   MASK: "mask",
@@ -100,11 +104,14 @@ const state = {
     maskNextGuessTurn: null,
     extraTurnForTurn: null,
   },
-  historyHideTimer: null,
-  historyHiddenUntil: 0,
+  historyHiddenStartTurn: null,
+  historyHiddenUntilTurn: null,
   historyMaskActive: false,
+  historyLockedRows: new Set(),
+  historyFreshRows: new Set(),
   holdHideBanner: false,
   showingOpponentModal: false,
+  skillNoticeTimeout: null,
 };
 
 const BASE_PLAYER_ID = getPlayerId();
@@ -205,6 +212,56 @@ function showToast(msg) {
   setTimeout(() => { t.style.display = "none"; }, 900);
 }
 
+function ensureSkillNoticeModal() {
+  let overlay = document.getElementById("versus-skill-notice");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "versus-skill-notice";
+    overlay.className = "hidden";
+    overlay.innerHTML = `
+      <div class="versus-turn-modal-content" role="alertdialog" aria-live="assertive">
+        <div class="versus-turn-banner">
+          <span class="versus-turn-text"></span>
+        </div>
+      </div>
+    `;
+    overlay.addEventListener("click", () => hideSkillNoticeModal());
+    document.body.appendChild(overlay);
+  }
+  return overlay;
+}
+
+function hideSkillNoticeModal() {
+  const overlay = document.getElementById("versus-skill-notice");
+  if (!overlay) return;
+  overlay.classList.add("hidden");
+  overlay.setAttribute("aria-hidden", "true");
+  const banner = overlay.querySelector(".versus-turn-banner");
+  if (banner) banner.classList.remove("animate");
+  if (state.skillNoticeTimeout) {
+    clearTimeout(state.skillNoticeTimeout);
+    state.skillNoticeTimeout = null;
+  }
+}
+
+function showSkillNoticeModal(message) {
+  const overlay = ensureSkillNoticeModal();
+  const textEl = overlay.querySelector(".versus-turn-text");
+  if (textEl) textEl.textContent = message;
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+  const banner = overlay.querySelector(".versus-turn-banner");
+  if (banner) {
+    banner.classList.remove("animate");
+    void banner.offsetWidth;
+    banner.classList.add("animate");
+  }
+  if (state.skillNoticeTimeout) clearTimeout(state.skillNoticeTimeout);
+  state.skillNoticeTimeout = setTimeout(() => {
+    hideSkillNoticeModal();
+  }, 2100);
+}
+
 function ensureSkillBar() {
   const bar = document.getElementById("versus-skill-bar");
   if (!bar) return null;
@@ -266,32 +323,107 @@ function ensureHistoryMask() {
   return mask;
 }
 
-function applyHistoryMask(durationMs = HIDE_HISTORY_DURATION_MS) {
-  const mask = ensureHistoryMask();
+function setHistoryMaskMessage(text) {
+  let mask = document.getElementById("versus-history-mask");
+  if (!mask && text) {
+    mask = ensureHistoryMask();
+  }
   if (!mask) return;
   const message = mask.querySelector("p");
-  if (message) {
-    const seconds = Math.round(durationMs / 1000);
-    message.textContent = `相手のスキルで履歴が${seconds}秒間非表示になっています`;
-  }
+  if (message) message.textContent = text;
+}
+
+function lockHistoryRows(untilTurn) {
+  const rows = getResultRows();
+  rows.forEach((row) => {
+    if (!row) return;
+    collapseResultRow(row);
+    lockResultRow(row);
+    row.dataset.hideLockedUntil = String(untilTurn);
+    row.classList.remove("versus-history-fresh");
+    state.historyFreshRows.delete(row);
+    state.historyLockedRows.add(row);
+  });
+}
+
+function markRowAsFresh(row) {
+  if (!row) return;
+  row.classList.add("versus-history-fresh");
+  state.historyFreshRows.add(row);
+}
+
+function clearFreshRows() {
+  state.historyFreshRows.forEach((row) => {
+    if (!row) return;
+    row.classList.remove("versus-history-fresh");
+  });
+  state.historyFreshRows.clear();
+}
+
+function unlockHistoryRows({ force = false } = {}) {
+  const rows = Array.from(state.historyLockedRows);
+  rows.forEach((row) => {
+    if (!row) return;
+    const until = Number(row.dataset.hideLockedUntil || 0);
+    const currentTurn = state.roomData?.turnNumber || 0;
+    if (force || !until || until <= currentTurn) {
+      delete row.dataset.hideLockedUntil;
+      unlockResultRow(row);
+      state.historyLockedRows.delete(row);
+    }
+  });
+}
+
+function applyHistoryMask({ turnNumber, turns } = {}) {
+  const mask = ensureHistoryMask();
+  if (!mask) return;
+  const baseTurn = typeof turnNumber === "number" ? turnNumber : (state.roomData?.turnNumber || 0);
+  const totalTurns = Math.max(1, Number.isFinite(turns) ? Math.trunc(turns) : HIDE_HISTORY_TURN_COUNT);
+  const untilTurn = baseTurn + totalTurns;
+
   mask.classList.add("active");
+  mask.dataset.totalTurns = String(totalTurns);
+
   state.historyMaskActive = true;
-  state.historyHiddenUntil = now() + durationMs;
-  if (state.historyHideTimer) clearTimeout(state.historyHideTimer);
-  state.historyHideTimer = setTimeout(() => {
+  state.historyHiddenStartTurn = baseTurn;
+  state.historyHiddenUntilTurn = untilTurn;
+
+  setHistoryMaskMessage(`相手のスキルで履歴が${totalTurns}ターンの間操作できません`);
+  lockHistoryRows(untilTurn);
+  updateHistoryMaskStatus(baseTurn);
+}
+
+function updateHistoryMaskStatus(currentTurn) {
+  if (!state.historyMaskActive) return;
+  const untilTurn = state.historyHiddenUntilTurn;
+  if (!untilTurn) return;
+  const remaining = untilTurn - currentTurn;
+  if (remaining <= 0) {
     clearHistoryMask();
-  }, durationMs);
+    return;
+  }
+
+  const mask = ensureHistoryMask();
+  const total = Number(mask?.dataset.totalTurns || 0) || remaining;
+  const message = remaining === total
+    ? `相手のスキルで履歴が${remaining}ターンの間操作できません`
+    : `相手のスキルで履歴があと${remaining}ターン操作できません`;
+  setHistoryMaskMessage(message);
 }
 
 function clearHistoryMask() {
   const mask = document.getElementById("versus-history-mask");
-  if (mask) mask.classList.remove("active");
-  if (state.historyHideTimer) {
-    clearTimeout(state.historyHideTimer);
-    state.historyHideTimer = null;
+  if (mask) {
+    mask.classList.remove("active");
+    delete mask.dataset.totalTurns;
+    setHistoryMaskMessage("");
   }
+  unlockHistoryRows({ force: true });
+  state.historyLockedRows.clear();
+  clearFreshRows();
   state.historyMaskActive = false;
-  state.historyHiddenUntil = 0;
+  state.historyHiddenStartTurn = null;
+  state.historyHiddenUntilTurn = null;
 }
 
 function resetSkillState() {
@@ -300,6 +432,7 @@ function resetSkillState() {
   state.skillPending = false;
   state.skillEffects.maskNextGuessTurn = null;
   state.skillEffects.extraTurnForTurn = null;
+  hideSkillNoticeModal();
 }
 
 function announceSkillUse(skillId, isMine, payload = {}) {
@@ -315,6 +448,9 @@ function announceSkillUse(skillId, isMine, payload = {}) {
       : `相手が「${label}」を使用！`;
   }
   showToast(message);
+  if (!isMine) {
+    showSkillNoticeModal(message);
+  }
 }
 
 async function triggerSkill(skillId) {
@@ -351,7 +487,7 @@ async function triggerSkill(skillId) {
       }
       case SKILL_TYPES.HIDE:
         consumed = true;
-        await postSkillEvent(skillId, { durationMs: HIDE_HISTORY_DURATION_MS });
+        await postSkillEvent(skillId, { turns: HIDE_HISTORY_TURN_COUNT });
         break;
       default:
         break;
@@ -412,8 +548,8 @@ function handleSkillEvent(evt) {
   }
 
   if (type === SKILL_TYPES.HIDE && !isMine) {
-    const duration = typeof payload.durationMs === "number" ? payload.durationMs : HIDE_HISTORY_DURATION_MS;
-    applyHistoryMask(duration);
+    const turns = typeof payload.turns === "number" ? payload.turns : HIDE_HISTORY_TURN_COUNT;
+    applyHistoryMask({ turnNumber, turns });
   }
 
   updateSkillUI(state.roomData);
@@ -763,6 +899,7 @@ function listenRoom(onState, onGuess) {
       updateSkillUI(data);
 
       const currentTurn = data.turnNumber || 1;
+      updateHistoryMaskStatus(currentTurn);
       if (prevStatus !== "playing") {
         if ((currentTurn || 0) <= 1) {
           queueTurnModal(currentTurn, mine);
@@ -814,7 +951,10 @@ function listenRoom(onState, onGuess) {
       }
 
       if (g.masked && g.by !== state.me) {
-        renderMaskedVersusGuess(false);
+        const maskedRow = renderMaskedVersusGuess(false);
+        if (state.historyMaskActive && maskedRow) {
+          markRowAsFresh(maskedRow);
+        }
         return;
       }
 
@@ -828,6 +968,9 @@ function listenRoom(onState, onGuess) {
         targetRow.classList.add(g.by === state.me ? "by-me" : "by-opponent");
         const trig = targetRow.querySelector(".accordion-trigger");
         if (trig && trig.hasAttribute("disabled")) trig.removeAttribute("disabled");
+        if (state.historyMaskActive) {
+          markRowAsFresh(targetRow);
+        }
       }
     });
   });
