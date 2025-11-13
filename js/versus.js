@@ -50,7 +50,7 @@ const TURN_MODAL_TYPES = {
 const TURN_MODAL_CONFIG = {
   [TURN_MODAL_TYPES.BATTLE_START]: {
     id: "versus-battle-start-modal",
-    defaultText: "バトルスタート！",
+    defaultText: "バトルスタート",
     bannerClass: "battle-start",
     duration: 2200,
   },
