@@ -53,23 +53,26 @@ const gameStatus = document.getElementById('game-status');
 
 let resultAccordionSeq = 0;
 
-function toggleAccordion(btn) {
+function setAccordionExpanded(btn, expanded) {
   if (!btn) return;
   const panelId = btn.getAttribute('aria-controls');
   const panel = document.getElementById(panelId);
   if (!panel) return;
 
-  const expanded = btn.getAttribute('aria-expanded') === 'true';
-  const next = !expanded;
-  btn.setAttribute('aria-expanded', String(next));
-
-  if (next) {
+  btn.setAttribute('aria-expanded', String(expanded));
+  if (expanded) {
     panel.hidden = false;
     panel.style.maxHeight = panel.scrollHeight + 'px';
   } else {
     panel.style.maxHeight = '0px';
     setTimeout(() => { panel.hidden = true; }, 200);
   }
+}
+
+function toggleAccordion(btn) {
+  if (!btn) return;
+  const expanded = btn.getAttribute('aria-expanded') === 'true';
+  setAccordionExpanded(btn, !expanded);
 }
 
 export function initDOM(handlers) {
@@ -273,7 +276,46 @@ export function renderResult(pokemon, comparisonResult, gameMode, isCorrect = fa
   resultHistory.insertAdjacentElement('afterbegin', row);
   return row;
 }
-  
+
+export function collapseResultRow(row) {
+  if (!row) return;
+  const trigger = row.querySelector('.accordion-trigger');
+  if (!trigger) return;
+  setAccordionExpanded(trigger, false);
+}
+
+export function lockResultRow(row) {
+  if (!row) return;
+  row.classList.add('versus-history-locked');
+  const trigger = row.querySelector('.accordion-trigger');
+  if (!trigger) return;
+  if (!trigger.hasAttribute('data-lock-prev-disabled')) {
+    trigger.dataset.lockPrevDisabled = trigger.disabled ? '1' : '0';
+  }
+  trigger.disabled = true;
+  trigger.setAttribute('aria-disabled', 'true');
+}
+
+export function unlockResultRow(row) {
+  if (!row) return;
+  row.classList.remove('versus-history-locked');
+  const trigger = row.querySelector('.accordion-trigger');
+  if (!trigger) return;
+  const prevDisabled = trigger.getAttribute('data-lock-prev-disabled');
+  if (prevDisabled === '1') {
+    trigger.disabled = true;
+    trigger.setAttribute('aria-disabled', 'true');
+  } else {
+    trigger.disabled = false;
+    trigger.removeAttribute('aria-disabled');
+  }
+  trigger.removeAttribute('data-lock-prev-disabled');
+}
+
+export function getResultRows() {
+  return Array.from(resultHistory.querySelectorAll('.result-row'));
+}
+
 export function showResultModal(pokemon, verdict, gameMode, guessesLeft) {
   const verdictEl = resultModal.querySelector('#result-modal-verdict span');
   verdictEl.textContent = verdict;
